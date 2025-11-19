@@ -1,0 +1,99 @@
+CMD: /usr/local/bin/ffmpeg -y -i /Users/marcusduggs/Golf_Caddie/media/input/video-6779_singular_display.mp4 -i /var/folders/_d/nl4vd3js3qn2m8srxyjyns5r0000gn/T/mapbox_map_9be990f6.png -filter_complex [1:v]scale=446:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10 -map 0:a? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart /Users/marcusduggs/Golf_Caddie/media/output/video-6779_singular_display_processed.mp4
+
+STDOUT:
+
+
+STDERR:
+ffmpeg version 8.0 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/usr/local/Cellar/ffmpeg/8.0_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags='-Wl,-ld_classic' --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/Users/marcusduggs/Golf_Caddie/media/input/video-6779_singular_display.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 1
+    compatible_brands: isommp41mp42
+    creation_time   : 2024-06-14T18:55:26.000000Z
+    copyright       : 
+    copyright-eng   : 
+    location        : +35.1824-120.7246/
+  Duration: 00:00:08.40, start: 0.000000, bitrate: 15762 kb/s
+  Stream #0:0[0x1](und): Video: hevc (Main 10) (hvc1 / 0x31637668), yuv420p10le(tv, bt709), 1488x1984, 15515 kb/s, 30.01 fps, 30 tbr, 600 tbn (default)
+    Metadata:
+      creation_time   : 2024-06-14T18:55:26.000000Z
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 244 kb/s (default)
+    Metadata:
+      creation_time   : 2024-06-14T18:55:26.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Input #1, png_pipe, from '/var/folders/_d/nl4vd3js3qn2m8srxyjyns5r0000gn/T/mapbox_map_9be990f6.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, pal8(pc, gbr/unknown/unknown), 500x600, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (hevc) -> overlay
+  Stream #1:0 (png) -> scale:default
+  overlay:default -> Stream #0:0 (libx264)
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x7fc421107940] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x7fc421107940] profile High, level 5.0, 4:2:0, 8-bit
+[libx264 @ 0x7fc421107940] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=12 lookahead_threads=4 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=1 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=10 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/marcusduggs/Golf_Caddie/media/output/video-6779_singular_display_processed.mp4':
+  Metadata:
+    major_brand     : mp42
+    minor_version   : 1
+    compatible_brands: isommp41mp42
+    location        : +35.1824-120.7246/
+    copyright       : 
+    copyright-eng   : 
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1488x1984, q=2-31, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 128 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      creation_time   : 2024-06-14T18:55:26.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.50    
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:01.00    
+frame=   14 fps=9.3 q=29.0 size=    1024KiB time=00:00:00.40 bitrate=20972.5kbits/s speed=0.265x elapsed=0:00:01.50    
+frame=   34 fps= 17 q=29.0 size=    2560KiB time=00:00:01.06 bitrate=19661.2kbits/s speed=0.53x elapsed=0:00:02.01    
+frame=   54 fps= 21 q=29.0 size=    3584KiB time=00:00:01.73 bitrate=16938.8kbits/s speed=0.69x elapsed=0:00:02.51    
+frame=   78 fps= 26 q=29.0 size=    4864KiB time=00:00:02.53 bitrate=15728.8kbits/s speed=0.84x elapsed=0:00:03.01    
+frame=  102 fps= 29 q=29.0 size=    6144KiB time=00:00:03.33 bitrate=15099.6kbits/s speed=0.945x elapsed=0:00:03.52    
+frame=  126 fps= 31 q=29.0 size=    7424KiB time=00:00:04.13 bitrate=14714.0kbits/s speed=1.03x elapsed=0:00:04.02    
+frame=  146 fps= 32 q=29.0 size=    8192KiB time=00:00:04.80 bitrate=13981.1kbits/s speed=1.06x elapsed=0:00:04.53    
+frame=  170 fps= 34 q=29.0 size=    9728KiB time=00:00:05.60 bitrate=14230.7kbits/s speed=1.11x elapsed=0:00:05.03    
+frame=  190 fps= 34 q=29.0 size=   11008KiB time=00:00:06.26 bitrate=14390.1kbits/s speed=1.13x elapsed=0:00:05.54    
+frame=  218 fps= 36 q=29.0 size=   12544KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:06.04    
+[mp4 @ 0x7fc4211088c0] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x7fc421108800] video:15070KiB audio:126KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.067343%
+frame=  252 fps= 39 q=-1.0 Lsize=   15206KiB time=00:00:08.19 bitrate=15200.2kbits/s speed=1.25x elapsed=0:00:06.53    
+[libx264 @ 0x7fc421107940] frame I:2     Avg QP:24.77  size:481913
+[libx264 @ 0x7fc421107940] frame P:65    Avg QP:26.22  size:174605
+[libx264 @ 0x7fc421107940] frame B:185   Avg QP:30.52  size: 16856
+[libx264 @ 0x7fc421107940] consecutive B-frames:  1.2%  2.4%  1.2% 95.2%
+[libx264 @ 0x7fc421107940] mb I  I16..4:  7.9% 28.5% 63.5%
+[libx264 @ 0x7fc421107940] mb P  I16..4:  2.0% 11.0%  2.3%  P16..4: 36.8% 16.6% 15.1%  0.0%  0.0%    skip:16.3%
+[libx264 @ 0x7fc421107940] mb B  I16..4:  0.2%  0.8%  0.1%  B16..8: 14.0%  5.3%  1.5%  direct: 5.4%  skip:72.8%  L0:25.9% L1:40.6% BI:33.4%
+[libx264 @ 0x7fc421107940] 8x8 transform intra:65.7% inter:46.6%
+[libx264 @ 0x7fc421107940] coded y,uvDC,uvAC intra: 54.5% 60.7% 22.7% inter: 17.5% 9.8% 0.6%
+[libx264 @ 0x7fc421107940] i16 v,h,dc,p: 42% 26% 19% 13%
+[libx264 @ 0x7fc421107940] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 27% 21% 26%  5%  4%  4%  4%  5%  5%
+[libx264 @ 0x7fc421107940] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 15% 13% 15% 10% 11%  9%  9%  9% 10%
+[libx264 @ 0x7fc421107940] i8c dc,h,v,p: 48% 22% 23%  8%
+[libx264 @ 0x7fc421107940] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x7fc421107940] kb/s:14696.57
+[aac @ 0x7fc42110b380] Qavg: 3431.282

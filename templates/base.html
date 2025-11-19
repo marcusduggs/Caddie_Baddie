@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Golf Caddie</title>
+    <!-- Tailwind CDN for development. For production, compile Tailwind into your static CSS. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+      /* Mobile-specific optimizations */
+      @media (max-width: 768px) {
+        body {
+          font-size: 16px; /* Prevent zoom on input focus in iOS */
+        }
+        input, select, textarea {
+          font-size: 16px; /* Prevent zoom on input focus in iOS */
+        }
+        video {
+          max-width: 100%;
+          height: auto;
+        }
+      }
+      /* Improve touch targets for mobile */
+      button, a, input[type="submit"] {
+        min-height: 44px; /* iOS recommended touch target size */
+        min-width: 44px;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50">
+    <header class="site-header bg-green-600 text-white shadow-md">
+      <div class="container mx-auto px-4 py-4">
+        <h1 class="text-2xl font-bold"><a href="/" class="text-white no-underline">⛳ Golf Caddie</a></h1>
+      </div>
+    </header>
+    <main class="container mx-auto px-4 py-6">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="mt-8 py-4 text-center text-gray-600 text-sm border-t border-gray-200">
+      <p>Golf Caddie • Simple shot logging 📱</p>
+    </footer>
+  </body>
+</html>

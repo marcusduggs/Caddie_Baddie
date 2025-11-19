@@ -1,0 +1,7 @@
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; margin: 0; padding: 0; }
+.site-header { background: #0b6; padding: 12px 20px; color: #012; }
+.site-header a { color: inherit; text-decoration: none; }
+main { padding: 18px; }
+table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+table th, table td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+form button { margin-top: 8px; padding: 8px 12px; }

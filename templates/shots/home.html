@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="hero">
+    <h2>Recent Shots</h2>
+    <p>{{ count }} shots recorded — {% if avg_distance %}Avg distance: {{ avg_distance|floatformat:1 }} yd{% else %}No distance data yet{% endif %}</p>
+    <p><a href="{% url 'shots:create_shot' %}">Record a new shot</a></p>
+  </section>
+
+  <section class="shots-list">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Club</th><th>Distance (yd)</th><th>Accuracy</th><th>Lat</th><th>Lon</th><th>When</th></tr>
+      </thead>
+      <tbody>
+        {% for s in shots %}
+          <tr>
+            <td>{{ s.id }}</td>
+            <td>{{ s.club }}</td>
+            <td>{{ s.distance }}</td>
+            <td>{{ s.accuracy }}</td>
+            <td>{{ s.latitude }}</td>
+            <td>{{ s.longitude }}</td>
+            <td>{{ s.created_at|date:'Y-m-d H:i' }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7">No shots yet — add one.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+{% endblock %}

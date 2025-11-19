@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-2xl mx-auto">
+    <h2 class="text-3xl font-bold mb-6">📹 Upload Swing Video</h2>
+    
+    <!-- Messages -->
+    {% if messages %}
+      {% for message in messages %}
+        <div class="mb-4 p-4 rounded-lg {% if message.tags == 'success' %}bg-green-100 text-green-800{% elif message.tags == 'error' %}bg-red-100 text-red-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+    
+    <!-- Upload Form -->
+    <form method="post" enctype="multipart/form-data" class="bg-white shadow-md rounded-lg p-6 mb-6">
+      {% csrf_token %}
+      
+      <div class="space-y-4">
+        <!-- Club Selection -->
+        <div>
+          <label for="{{ form.club.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+            ⛳ Club
+          </label>
+          {{ form.club }}
+          {% if form.club.errors %}
+            <p class="mt-1 text-sm text-red-600">{{ form.club.errors.0 }}</p>
+          {% endif %}
+        </div>
+        
+        <!-- Distance Input -->
+        <div>
+          <label for="{{ form.distance.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+            📏 Distance (yards)
+          </label>
+          {{ form.distance }}
+          {% if form.distance.errors %}
+            <p class="mt-1 text-sm text-red-600">{{ form.distance.errors.0 }}</p>
+          {% endif %}
+        </div>
+        
+        <!-- Video Upload -->
+        <div>
+          <label for="{{ form.input_video.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+            🎥 Video File
+          </label>
+          <input 
+            type="file" 
+            name="input_video" 
+            id="{{ form.input_video.id_for_label }}"
+            accept="video/*,video/mp4,video/quicktime"
+            required
+            class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-2"
+            onchange="handleFileSelect(this)"
+          >
+          <p class="mt-2 text-sm text-gray-500">📱 Choose from camera roll or record new video</p>
+          <p id="file-info" class="mt-2 text-sm text-blue-600 hidden"></p>
+          {% if form.input_video.errors %}
+            <p class="mt-1 text-sm text-red-600">{{ form.input_video.errors.0 }}</p>
+          {% endif %}
+        </div>
+      </div>
+      
+      <!-- Submit Button -->
+      <div class="mt-6">
+        <button 
+          type="submit" 
+          id="submit-btn"
+          class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 text-lg"
+        >
+          🚀 Analyze Shot
+        </button>
+        <div id="upload-progress" class="hidden mt-4">
+          <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
+            <strong class="font-bold">📤 Uploading...</strong>
+            <span class="block sm:inline">Please wait while your video uploads and processes. This may take a minute for large videos.</span>
+          </div>
+        </div>
+      </div>
+    </form>
+    
+    <!-- Processed Video Display -->
+    {% if video_url %}
+      <div class="bg-white shadow-md rounded-lg p-6">
+        <h3 class="text-2xl font-bold mb-4">✅ Processed Video</h3>
+        <video 
+          controls 
+          playsinline
+          class="w-full rounded-lg shadow-lg"
+          preload="metadata"
+        >
+          <source src="{{ video_url }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    {% endif %}
+    
+    <!-- Navigation -->
+    <div class="mt-6 text-center">
+      <a href="{% url 'shots:shot_list' %}" class="text-blue-600 hover:text-blue-800 font-medium">
+        ← Back to All Shots
+      </a>
+    </div>
+  </div>
+  
+  <style>
+    /* Mobile-optimized form styling */
+    select, input[type="number"], input[type="file"] {
+      font-size: 16px !important; /* Prevent iOS zoom */
+      padding: 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      width: 100%;
+    }
+    
+    select:focus, input:focus {
+      outline: none;
+      border-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    }
+    
+    /* Better file input on mobile */
+    input[type="file"]::file-selector-button {
+      background-color: #10b981;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-weight: 500;
+      margin-right: 1rem;
+    }
+    
+    input[type="file"]::file-selector-button:hover {
+      background-color: #059669;
+    }
+  </style>
+  
+  <script>
+    // Show file information when selected
+    function handleFileSelect(input) {
+      const fileInfo = document.getElementById('file-info');
+      if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        fileInfo.textContent = `✅ Selected: ${file.name} (${sizeMB} MB)`;
+        fileInfo.classList.remove('hidden');
+      }
+    }
+    
+    // Show upload progress when form is submitted
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.querySelector('form');
+      const submitBtn = document.getElementById('submit-btn');
+      const progressDiv = document.getElementById('upload-progress');
+      
+      form.addEventListener('submit', function(e) {
+        // Show progress indicator
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Uploading...';
+        submitBtn.classList.remove('hover:bg-green-700');
+        submitBtn.classList.add('bg-gray-400');
+        progressDiv.classList.remove('hidden');
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-6xl mx-auto">
+    <h2 class="text-3xl font-bold mb-6">📊 Shot Analysis #{{ analysis.id }}</h2>
+    
+    <div class="mb-6 flex flex-wrap gap-2">
+      <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
+        📹 Upload New Video
+      </a>
+      <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+        📋 View All Shots
+      </a>
+    </div>
+
+    <!-- Shot Details -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+      <h3 class="text-xl font-semibold mb-4">🏌️ Shot Details</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Club</p>
+          <p class="text-lg font-medium">⛳ {{ analysis.club }}</p>
+        </div>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Distance</p>
+          <p class="text-lg font-medium">📏 {{ analysis.distance }} yards</p>
+        </div>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Uploaded</p>
+          <p class="text-lg font-medium">📅 {{ analysis.created_at|date:"M d, Y g:i A" }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Videos Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Original Video -->
+      {% if analysis.input_video %}
+      <div class="bg-white shadow-md rounded-lg p-6">
+        <h3 class="text-xl font-semibold mb-4">📹 Original Video</h3>
+        <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <p class="text-xs text-gray-500 font-medium mb-1">📁 File Path:</p>
+          <p class="text-sm text-gray-700 font-mono break-all">{{ analysis.input_video.path }}</p>
+          <p class="text-xs text-gray-500 font-medium mt-2 mb-1">📄 File Name:</p>
+          <p class="text-sm text-gray-700 font-mono">{{ analysis.input_video.name }}</p>
+        </div>
+        <video 
+          controls 
+          playsinline
+          preload="metadata"
+          class="w-full rounded-lg shadow-lg"
+        >
+          <source src="{{ analysis.input_video.url }}" type="video/mp4">
+          <source src="{{ analysis.input_video.url }}" type="video/quicktime">
+          Your browser does not support the video tag.
+        </video>
+        <p class="mt-2 text-sm text-gray-500">📱 Tap to play, pinch to zoom</p>
+      </div>
+      {% endif %}
+
+      <!-- Processed Video -->
+      {% if analysis.processed_video %}
+      <div class="bg-white shadow-md rounded-lg p-6">
+        <h3 class="text-xl font-semibold mb-4">🗺️ Processed Video (Map Overlay)</h3>
+        <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <p class="text-xs text-gray-500 font-medium mb-1">📁 File Path:</p>
+          <p class="text-sm text-gray-700 font-mono break-all">{{ analysis.processed_video.path }}</p>
+          <p class="text-xs text-gray-500 font-medium mt-2 mb-1">📄 File Name:</p>
+          <p class="text-sm text-gray-700 font-mono">{{ analysis.processed_video.name }}</p>
+        </div>
+        <video 
+          controls 
+          playsinline
+          preload="metadata"
+          class="w-full rounded-lg shadow-lg"
+        >
+          <source src="{{ analysis.processed_video.url }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+        <p class="mt-2 text-sm text-green-600 font-medium">✅ GPS map overlay applied</p>
+      </div>
+      {% else %}
+      <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6">
+        <h3 class="text-xl font-semibold mb-2 text-yellow-800">⚠️ Processing Failed</h3>
+        <p class="text-yellow-700">The video processing could not be completed. The original video is available above.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Back Button -->
+    <div class="mt-8">
+      <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-lg">
+        ← Back to All Shots
+      </a>
+    </div>
+  </div>
+  
+  <style>
+    /* Optimize video playback on mobile */
+    video {
+      max-width: 100%;
+      height: auto;
+    }
+    
+    /* Prevent auto-zoom on focus for iOS */
+    @media screen and (max-width: 768px) {
+      video {
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+  </style>
+{% endblock %}
