@@ -38,12 +38,6 @@
       {% if analysis.input_video %}
       <div class="bg-white shadow-md rounded-lg p-6">
         <h3 class="text-xl font-semibold mb-4">📹 Original Video</h3>
-        <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <p class="text-xs text-gray-500 font-medium mb-1">📁 File Path:</p>
-          <p class="text-sm text-gray-700 font-mono break-all">{{ analysis.input_video.path }}</p>
-          <p class="text-xs text-gray-500 font-medium mt-2 mb-1">📄 File Name:</p>
-          <p class="text-sm text-gray-700 font-mono">{{ analysis.input_video.name }}</p>
-        </div>
         <video 
           controls 
           playsinline
@@ -62,12 +56,6 @@
       {% if analysis.processed_video %}
       <div class="bg-white shadow-md rounded-lg p-6">
         <h3 class="text-xl font-semibold mb-4">🗺️ Processed Video (Map Overlay)</h3>
-        <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <p class="text-xs text-gray-500 font-medium mb-1">📁 File Path:</p>
-          <p class="text-sm text-gray-700 font-mono break-all">{{ analysis.processed_video.path }}</p>
-          <p class="text-xs text-gray-500 font-medium mt-2 mb-1">📄 File Name:</p>
-          <p class="text-sm text-gray-700 font-mono">{{ analysis.processed_video.name }}</p>
-        </div>
         <video 
           controls 
           playsinline
