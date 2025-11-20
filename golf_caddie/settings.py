@@ -1,17 +1,17 @@
 import os
-import dj_database_url
 from pathlib import Path
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# Use environment variable for SECRET_KEY in production
 SECRET_KEY = os.environ.get('SECRET_KEY', 'replace-this-with-a-secure-key-for-production')
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# Use environment variable for DEBUG in production
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 # Allow connections from any host (local network, iPhone, etc.)
-# For production, Render will set this via environment variable
+# For production, use environment variable to restrict to specific domains
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
 # Use BigAutoField by default to silence warnings about AutoField
@@ -29,7 +29,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Add WhiteNoise for static files
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -58,17 +58,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'golf_caddie.wsgi.application'
 
-# Database configuration
-# Use PostgreSQL on Render, SQLite locally
-DATABASE_URL = os.environ.get('DATABASE_URL')
-
-if DATABASE_URL:
-    # Production: Use PostgreSQL from Render
+# Database - use PostgreSQL on Render, SQLite locally
+if os.environ.get('DATABASE_URL'):
     DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+        'default': dj_database_url.parse(os.environ.get('DATABASE_URL'))
     }
 else:
-    # Development: Use SQLite
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -83,12 +78,11 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # For production
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# WhiteNoise configuration for efficient static file serving
+# Configure WhiteNoise for static file serving in production
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -98,7 +92,6 @@ STORAGES = {
     },
 }
 
-# Media files (uploaded content)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
