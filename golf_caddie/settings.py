@@ -1,32 +1,21 @@
-# --- Logging config for debug output ---
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-}
-  # Removed custom LOGGING config for debug logging
-  
-  
 import os
 from pathlib import Path
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'replace-this-with-a-secure-key-for-production'
+# Use environment variable for SECRET_KEY in production
+SECRET_KEY = os.environ.get('SECRET_KEY', 'replace-this-with-a-secure-key-for-production')
 
-DEBUG = True
+# Use environment variable for DEBUG
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-# Allow connections from any host (local network, iPhone, etc.)
-# For production, restrict this to specific domains
-ALLOWED_HOSTS = ['*']
+# Allow connections from Render domain, localhost, and 127.0.0.1
+ALLOWED_HOSTS = [
+    "caddie-baddie-1.onrender.com",
+    "localhost",
+    "127.0.0.1"
+]
 
 # Use BigAutoField by default to silence warnings about AutoField
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -43,6 +32,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -71,12 +61,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'golf_caddie.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Database - use PostgreSQL on Render, SQLite locally
+if os.environ.get('DATABASE_URL'):
+    DATABASES = {
+        'default': dj_database_url.config(conn_max_age=600, ssl_require=True)
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -87,6 +83,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

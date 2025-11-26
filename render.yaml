@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: caddie-baddie
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn golf_caddie.wsgi:application"
+    autoDeploy: true
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: golf_caddie.settings
+    disk:
+      name: media-disk
+      mountPath: /opt/render/project/src/media
+      sizeGB: 5
+    databases:
+      - name: caddie-baddie-db
+        type: postgresql
+    autoMigrate: true
