@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,7 +61,9 @@ TEMPLATES = [
 WSGI_APPLICATION = 'golf_caddie.wsgi.application'
 
 # Database - use PostgreSQL on Render, SQLite locally
-if os.environ.get('DATABASE_URL'):
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    import dj_database_url
     DATABASES = {
         'default': dj_database_url.config(conn_max_age=600, ssl_require=True)
     }
