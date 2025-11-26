@@ -18,8 +18,11 @@ from urllib.error import URLError, HTTPError
 logger = logging.getLogger(__name__)
 
 # Full paths to ffmpeg and ffprobe
-FFMPEG_PATH = "/usr/local/bin/ffmpeg"
-FFPROBE_PATH = "/usr/local/bin/ffprobe"
+import shutil
+
+FFMPEG_PATH = shutil.which("ffmpeg")
+FFPROBE_PATH = shutil.which("ffprobe")
+
 
 
 def _probe_width(path):

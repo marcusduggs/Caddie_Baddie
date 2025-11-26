@@ -7,11 +7,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Use environment variable for SECRET_KEY in production
 SECRET_KEY = os.environ.get('SECRET_KEY', 'replace-this-with-a-secure-key-for-production')
 
-# Use environment variable for DEBUG in production
+# Use environment variable for DEBUG
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 # Allow connections from any host (local network, iPhone, etc.)
-# For production, use environment variable to restrict to specific domains
+# For production, use environment variable to restrict to specific domains  
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
 # Use BigAutoField by default to silence warnings about AutoField

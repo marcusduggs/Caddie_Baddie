@@ -141,10 +141,22 @@
     // Show file information when selected
     function handleFileSelect(input) {
       const fileInfo = document.getElementById('file-info');
+      const submitBtn = document.getElementById('submit-btn');
+      
       if (input.files && input.files[0]) {
         const file = input.files[0];
         const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-        fileInfo.textContent = `✅ Selected: ${file.name} (${sizeMB} MB)`;
+        
+        // Warn if file is too large for ngrok
+        if (file.size > 50 * 1024 * 1024) {
+          fileInfo.textContent = `⚠️ Warning: ${file.name} (${sizeMB} MB) may be too large. Try a video under 50 MB for best results.`;
+          fileInfo.classList.remove('text-blue-600');
+          fileInfo.classList.add('text-orange-600', 'font-semibold');
+        } else {
+          fileInfo.textContent = `✅ Selected: ${file.name} (${sizeMB} MB)`;
+          fileInfo.classList.remove('text-orange-600', 'font-semibold');
+          fileInfo.classList.add('text-blue-600');
+        }
         fileInfo.classList.remove('hidden');
       }
     }
