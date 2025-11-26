@@ -1,3 +1,20 @@
+# --- Logging config for debug output ---
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}
+  # Removed custom LOGGING config for debug logging
+  
+  
 import os
 from pathlib import Path
 

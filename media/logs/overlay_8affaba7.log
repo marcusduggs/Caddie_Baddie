@@ -1,0 +1,101 @@
+CMD: /usr/local/bin/ffmpeg -y -i /Users/marcusduggs/Golf_Caddie/media/input/1.MOV -i /Users/marcusduggs/Golf_Caddie/media/output/1_processed_first_frame.png -filter_complex [1:v]scale=310:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10 -map 0:a? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart /Users/marcusduggs/Golf_Caddie/media/output/1_processed.mp4
+
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/usr/local/Cellar/ffmpeg/8.0.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/Users/marcusduggs/Golf_Caddie/media/input/1.MOV':
+  Metadata:
+    major_brand     : qt  
+    minor_version   : 0
+    compatible_brands: qt  
+    creation_time   : 2024-11-11T01:03:46.000000Z
+    com.apple.quicktime.copyright: Meta View
+    com.apple.quicktime.location.ISO6709: +37.7250-121.8554/
+    com.apple.quicktime.comment: app=Meta View&device=Ray-Ban Meta Smart Glasses&id=4476E994-CCA1-499B-A393-2D9CDAC8699A
+    com.apple.quicktime.model: Ray-Ban Meta Smart Glasses
+    com.apple.quicktime.creationdate: 2024-11-10T22:45:56Z
+  Duration: 00:00:12.63, start: 0.000000, bitrate: 15716 kb/s
+  Stream #0:0[0x1](und): Video: hevc (Main 10) (hvc1 / 0x31637668), yuv420p10le(tv, bt709, progressive), 1552x2064, 15461 kb/s, 30 fps, 30 tbr, 600 tbn (default)
+    Metadata:
+      creation_time   : 2024-11-11T01:03:46.000000Z
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+      encoder         : 'hvc1'
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 249 kb/s (default)
+    Metadata:
+      creation_time   : 2024-11-11T01:03:46.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Input #1, png_pipe, from '/Users/marcusduggs/Golf_Caddie/media/output/1_processed_first_frame.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb48be(pc, gbr/bt709/bt709), 1552x2064, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (hevc) -> overlay
+  Stream #1:0 (png) -> scale:default
+  overlay:default -> Stream #0:0 (libx264)
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x7fcc58905100] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x7fcc58905100] profile High, level 5.0, 4:2:0, 8-bit
+[libx264 @ 0x7fcc58905100] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=12 lookahead_threads=4 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=1 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=10 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/marcusduggs/Golf_Caddie/media/output/1_processed.mp4':
+  Metadata:
+    major_brand     : qt  
+    minor_version   : 0
+    compatible_brands: qt  
+    com.apple.quicktime.creationdate: 2024-11-10T22:45:56Z
+    com.apple.quicktime.copyright: Meta View
+    com.apple.quicktime.location.ISO6709: +37.7250-121.8554/
+    com.apple.quicktime.comment: app=Meta View&device=Ray-Ban Meta Smart Glasses&id=4476E994-CCA1-499B-A393-2D9CDAC8699A
+    com.apple.quicktime.model: Ray-Ban Meta Smart Glasses
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1552x2064, q=2-31, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 128 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      creation_time   : 2024-11-11T01:03:46.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.50    
+frame=    7 fps=6.9 q=29.0 size=     768KiB time=00:00:00.20 bitrate=31459.2kbits/s speed=0.199x elapsed=0:00:01.00    
+frame=   35 fps= 23 q=29.0 size=    2560KiB time=00:00:01.10 bitrate=19065.4kbits/s speed=0.728x elapsed=0:00:01.51    
+frame=   66 fps= 33 q=29.0 size=    4352KiB time=00:00:02.13 bitrate=16711.9kbits/s speed=1.06x elapsed=0:00:02.01    
+frame=   94 fps= 37 q=29.0 size=    6144KiB time=00:00:03.06 bitrate=16412.6kbits/s speed=1.22x elapsed=0:00:02.51    
+frame=  122 fps= 40 q=29.0 size=    7424KiB time=00:00:04.00 bitrate=15204.4kbits/s speed=1.32x elapsed=0:00:03.02    
+frame=  154 fps= 44 q=29.0 size=    9216KiB time=00:00:05.06 bitrate=14900.9kbits/s speed=1.44x elapsed=0:00:03.52    
+frame=  186 fps= 46 q=29.0 size=   10752KiB time=00:00:06.13 bitrate=14361.0kbits/s speed=1.52x elapsed=0:00:04.02    
+frame=  218 fps= 48 q=29.0 size=   12288KiB time=00:00:07.20 bitrate=13981.1kbits/s speed=1.59x elapsed=0:00:04.52    
+frame=  248 fps= 49 q=29.0 size=   13824KiB time=00:00:08.20 bitrate=13810.6kbits/s speed=1.63x elapsed=0:00:05.02    
+frame=  276 fps= 50 q=29.0 size=   15872KiB time=00:00:09.13 bitrate=14236.2kbits/s speed=1.65x elapsed=0:00:05.52    
+frame=  308 fps= 51 q=29.0 size=   17152KiB time=00:00:10.20 bitrate=13775.4kbits/s speed=1.69x elapsed=0:00:06.03    
+frame=  340 fps= 52 q=29.0 size=   18944KiB time=00:00:11.26 bitrate=13774.2kbits/s speed=1.72x elapsed=0:00:06.53    
+[mp4 @ 0x7fcc558044c0] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x7fcc55804280] video:21427KiB audio:197KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.068181%
+frame=  379 fps= 54 q=-1.0 Lsize=   21638KiB time=00:00:12.53 bitrate=14138.7kbits/s speed= 1.8x elapsed=0:00:06.98    
+[libx264 @ 0x7fcc58905100] frame I:2     Avg QP:22.89  size:654762
+[libx264 @ 0x7fcc58905100] frame P:98    Avg QP:24.56  size:170942
+[libx264 @ 0x7fcc58905100] frame B:279   Avg QP:27.70  size: 13902
+[libx264 @ 0x7fcc58905100] consecutive B-frames:  1.1%  1.6%  2.4% 95.0%
+[libx264 @ 0x7fcc58905100] mb I  I16..4:  7.4% 32.7% 59.9%
+[libx264 @ 0x7fcc58905100] mb P  I16..4:  3.0% 14.2%  0.7%  P16..4: 40.7%  9.3%  8.8%  0.0%  0.0%    skip:23.3%
+[libx264 @ 0x7fcc58905100] mb B  I16..4:  0.1%  0.4%  0.0%  B16..8:  8.2%  2.9%  0.9%  direct: 6.2%  skip:81.3%  L0:25.6% L1:40.3% BI:34.1%
+[libx264 @ 0x7fcc58905100] 8x8 transform intra:74.2% inter:46.8%
+[libx264 @ 0x7fcc58905100] coded y,uvDC,uvAC intra: 27.1% 34.6% 4.3% inter: 16.7% 4.5% 0.1%
+[libx264 @ 0x7fcc58905100] i16 v,h,dc,p: 26% 47% 14% 13%
+[libx264 @ 0x7fcc58905100] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 14% 40% 43%  0%  1%  0%  1%  0%  1%
+[libx264 @ 0x7fcc58905100] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 11% 16% 14%  8% 12% 10% 12%  8%  9%
+[libx264 @ 0x7fcc58905100] i8c dc,h,v,p: 60% 28% 11%  2%
+[libx264 @ 0x7fcc58905100] Weighted P-Frames: Y:1.0% UV:0.0%
+[libx264 @ 0x7fcc58905100] kb/s:13893.67
+[aac @ 0x7fcc58906700] Qavg: 1376.713
