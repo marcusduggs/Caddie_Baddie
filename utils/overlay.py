@@ -18,7 +18,7 @@ from urllib.error import URLError, HTTPError
 logger = logging.getLogger(__name__)
 
 # Full paths to ffmpeg and ffprobe
-FFMPEG_PATH = "/usr/local/bin/ffmpeg"
+FFMPEG_PATH = "ffmpeg"
 FFPROBE_PATH = "ffprobe"
 
 
