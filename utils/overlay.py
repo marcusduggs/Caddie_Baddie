@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Full paths to ffmpeg and ffprobe
 FFMPEG_PATH = "/usr/local/bin/ffmpeg"
-FFPROBE_PATH = "/usr/local/bin/ffprobe"
+FFPROBE_PATH = "ffprobe"
 
 
 def _probe_width(path):
