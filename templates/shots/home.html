@@ -1,33 +1,46 @@
+
 {% extends 'base.html' %}
 
 {% block content %}
-  <section class="hero">
-    <h2>Recent Shots</h2>
-    <p>{{ count }} shots recorded — {% if avg_distance %}Avg distance: {{ avg_distance|floatformat:1 }} yd{% else %}No distance data yet{% endif %}</p>
-    <p><a href="{% url 'shots:create_shot' %}">Record a new shot</a></p>
-  </section>
+<div class="bg-[#e0fbfc] rounded-b-2xl pb-12 -mx-4 md:mx-0">
+  <nav class="flex justify-between items-center px-6 pt-6">
+    <div class="flex items-center gap-3">
+  <img src="/static/images/caddie_baddie_logo.PNG" alt="Caddie Baddie Logo" class="h-14 w-14 object-contain" />
+      <span class="text-2xl font-bold tracking-wide text-[#22223b]">CADDIE BADDIE</span>
+    </div>
+    <div class="flex gap-8 text-lg font-medium">
+  <a href="{% url 'shots:analyze_upload' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Analyze Shots</a>
+  <a href="{% url 'shots:shot_list' %}" class="ml-4 bg-[#264653] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Shots</a>
+  <a href="/signup" class="ml-4 bg-[#22223b] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Sign Up</a>
+    </div>
+  </nav>
+  <div class="flex flex-col items-center justify-center text-center py-16">
+  <img src="/static/images/caddie_baddie_logo.PNG" alt="Caddie Baddie Logo" class="w-48 h-48 object-contain mb-6" />
+    <h1 class="text-5xl md:text-6xl font-extrabold text-[#22223b] mb-4">CADDIE BADDIE</h1>
+    <p class="text-2xl md:text-3xl font-semibold text-[#3a86ff] mb-8 tracking-wide">MAKE EVERY SWING SHARE-WORTHY.</p>
+    <a href="/signup" class="bg-[#22223b] text-white text-xl font-bold px-8 py-4 rounded-lg shadow hover:bg-[#3a86ff] transition">GET STARTED</a>
+  </div>
+</div>
 
-  <section class="shots-list">
-    <table>
-      <thead>
-        <tr><th>ID</th><th>Club</th><th>Distance (yd)</th><th>Accuracy</th><th>Lat</th><th>Lon</th><th>When</th></tr>
-      </thead>
-      <tbody>
-        {% for s in shots %}
-          <tr>
-            <td>{{ s.id }}</td>
-            <td>{{ s.club }}</td>
-            <td>{{ s.distance }}</td>
-            <td>{{ s.accuracy }}</td>
-            <td>{{ s.latitude }}</td>
-            <td>{{ s.longitude }}</td>
-            <td>{{ s.created_at|date:'Y-m-d H:i' }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="7">No shots yet — add one.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+<section class="max-w-4xl mx-auto mt-12 text-center">
+  <h2 class="text-3xl font-bold mb-8 text-[#22223b]">Why Choose Caddie Baddie?</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-white rounded-xl shadow p-6 border border-[#e0e0e0]">
+      <h3 class="text-xl font-bold mb-2 text-[#22223b]">Track Your Swings</h3>
+      <p class="text-[#22223b] opacity-80">Analyze your performance with precision metrics.</p>
+    </div>
+    <div class="bg-white rounded-xl shadow p-6 border border-[#e0e0e0]">
+      <h3 class="text-xl font-bold mb-2 text-[#22223b]">Share Instantly</h3>
+      <p class="text-[#22223b] opacity-80">Show off your best moments with one click.</p>
+    </div>
+    <div class="bg-white rounded-xl shadow p-6 border border-[#e0e0e0]">
+      <h3 class="text-xl font-bold mb-2 text-[#22223b]">Join the Community</h3>
+      <p class="text-[#22223b] opacity-80">Connect with golfers worldwide and learn together.</p>
+    </div>
+  </div>
+</section>
 
+<footer class="mt-16 py-8 text-center text-[#22223b] text-base bg-[#22223b] bg-opacity-5 rounded-t-2xl">
+  <p class="font-medium">© 2025 Caddie Baddie. All rights reserved.</p>
+</footer>
 {% endblock %}

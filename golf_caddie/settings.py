@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -10,14 +9,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'replace-this-with-a-secure-key-for-pr
 # Use environment variable for DEBUG
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-# Allow connections from Render domain, localhost, and 127.0.0.1
-ALLOWED_HOSTS = [
-    "caddie-baddie-1.onrender.com",
-    "localhost",
-    "127.0.0.1",
-    "24.5.99.14"
-]
-
+# Allowed hosts
+# For local development, allow all. In production, set explicitly via env.
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
 # Use BigAutoField by default to silence warnings about AutoField
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -63,9 +57,11 @@ TEMPLATES = [
 WSGI_APPLICATION = 'golf_caddie.wsgi.application'
 
 # Database - use PostgreSQL on Render, SQLite locally
-if os.environ.get('DATABASE_URL'):
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    import dj_database_url
     DATABASES = {
-        'default': dj_database_url.parse(os.environ.get('DATABASE_URL'))
+        'default': dj_database_url.config(conn_max_age=600, ssl_require=False)
     }
 else:
     DATABASES = {

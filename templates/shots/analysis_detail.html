@@ -71,6 +71,8 @@
       <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6">
         <h3 class="text-xl font-semibold mb-2 text-yellow-800">⚠️ Processing Failed</h3>
         <p class="text-yellow-700">The video processing could not be completed. The original video is available above.</p>
+        <p class="text-yellow-700 mt-2">Hint: Ensure <code>ffmpeg</code> and <code>ffprobe</code> are installed and in your PATH.
+          Check the latest log in <code>media/logs/overlay_*.log</code> for details.</p>
       </div>
       {% endif %}
     </div>

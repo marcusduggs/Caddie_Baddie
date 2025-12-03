@@ -186,6 +186,62 @@ python manage.py createsuperuser
 - Original uploads are saved to `media/input/`
 - Video processing logs are saved to `media/logs/`
 
+## 🖥️ System Requirements (macOS)
+
+To analyze videos with GPS-based map overlays, the app uses `ffmpeg` and `ffprobe`.
+
+1) Install Homebrew (package manager)
+
+```zsh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+2) Add Homebrew to PATH
+
+- Apple Silicon:
+
+```zsh
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+- Intel:
+
+```zsh
+echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/usr/local/bin/brew shellenv)"
+```
+
+3) Install ffmpeg (includes ffprobe)
+
+```zsh
+brew install ffmpeg
+```
+
+4) Verify installation
+
+```zsh
+which ffprobe
+which ffmpeg
+ffprobe -version
+ffmpeg -version
+```
+
+If you prefer not to use Homebrew, download prebuilt ffmpeg/ffprobe binaries and place them in `~/bin`, then add `~/bin` to your PATH:
+
+```zsh
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+## 🧪 Troubleshooting
+
+- "Processing Failed" on Analyze page:
+   - Ensure `ffmpeg` and `ffprobe` are installed and visible in your shell (`which ffprobe`).
+   - Inspect the most recent log under `media/logs/overlay_*.log` for the exact ffmpeg command and error.
+   - If GPS metadata is missing, the app falls back to a static map (`test_map.png`).
+
+
 ## 🤝 Development
 
 ### File Structure

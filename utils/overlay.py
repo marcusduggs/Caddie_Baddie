@@ -10,6 +10,7 @@ import re
 import tempfile
 import logging
 from pathlib import Path
+import shutil
 from django.conf import settings
 from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
@@ -17,9 +18,26 @@ from urllib.error import URLError, HTTPError
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Full paths to ffmpeg and ffprobe
-FFMPEG_PATH = "ffmpeg"
-FFPROBE_PATH = "ffprobe"
+def _resolve_binary(name: str):
+    """Resolve a binary by name, trying PATH first, then common Homebrew locations."""
+    # Try PATH
+    path = shutil.which(name)
+    if path:
+        return path
+    # Try common Homebrew prefixes
+    candidates = [
+        f"/usr/local/bin/{name}",
+        f"/opt/homebrew/bin/{name}",
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    # Fallback to name (will likely fail, but keeps error messages clear)
+    return name
+
+# Full paths to ffmpeg and ffprobe (resolved once at import)
+FFMPEG_PATH = _resolve_binary("ffmpeg")
+FFPROBE_PATH = _resolve_binary("ffprobe")
 
 
 def _probe_width(path):

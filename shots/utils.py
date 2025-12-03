@@ -1,4 +1,5 @@
 import subprocess
+import shutil
 import json
 import re
 import tempfile
@@ -11,8 +12,14 @@ def extract_coords_from_video(path: str):
     Returns (lon, lat) or None.
     """
     try:
+        # Resolve ffprobe path: try PATH, then common Homebrew locations
+        ffprobe_path = shutil.which('ffprobe') or '/usr/local/bin/ffprobe'
+        if not (os.path.isfile(ffprobe_path) and os.access(ffprobe_path, os.X_OK)):
+            # Try Apple Silicon default
+            ffprobe_path = '/opt/homebrew/bin/ffprobe' if os.path.isfile('/opt/homebrew/bin/ffprobe') else ffprobe_path
+
         cmd = [
-            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            ffprobe_path, '-v', 'quiet', '-print_format', 'json',
             '-show_format', '-show_streams', path
         ]
         p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
