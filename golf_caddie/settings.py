@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'shots',
+    'accounts.apps.AccountsConfig',
 ]
 
 MIDDLEWARE = [
@@ -99,6 +100,15 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # iPhone videos can be large (100MB-1GB+), so we increase the limits
 DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB (in bytes)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB (in bytes)
+
+
+# Custom user model for email authentication
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
+# Authentication backend for email login
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # Mapbox token used to fetch static map images when a local overlay isn't present.
 # You can also override this at runtime with the MAPBOX_TOKEN environment variable.

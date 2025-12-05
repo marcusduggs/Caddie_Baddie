@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Shots</title>
+    <style>
+        body { font-family: Arial; background: #f9f9f9; padding: 20px; }
+        h1 { color: #333; }
+        .shot { padding: 12px; background: white; margin-bottom: 10px; 
+                border-radius: 6px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>My Shots</h1>
+
+    {% if shots %}
+        {% for shot in shots %}
+            <div class="shot">
+                <p><strong>Club:</strong> {{ shot.club }}</p>
+                <p><strong>Distance:</strong> {{ shot.distance }}</p>
+                <p><strong>Uploaded:</strong> {{ shot.created_at }}</p>
+
+                {% if shot.video %}
+                    <video width="300" controls>
+                        <source src="{{ shot.video.url }}" type="video/mp4">
+                    </video>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>You haven't uploaded any shots yet.</p>
+    {% endif %}
+</body>
+</html>

@@ -1,7 +1,10 @@
 from django.db import models
 
 
+from django.conf import settings
+
 class Shot(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     club = models.CharField(max_length=64, blank=True, default='Unknown')
     distance = models.FloatField(help_text='Distance in yards')
     accuracy = models.FloatField(help_text='Accuracy score (0-100)')
@@ -16,6 +19,7 @@ class Shot(models.Model):
 
 class ShotAnalysis(models.Model):
     """Stores results from analyzing an uploaded swing video."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     club = models.CharField(max_length=50)
     distance = models.FloatField()
     input_video = models.FileField(upload_to='input/')

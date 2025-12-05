@@ -1,3 +1,19 @@
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def upload_shot(request):
+    if request.method == "POST":
+        form = ShotForm(request.POST, request.FILES)
+        if form.is_valid():
+            shot = form.save(commit=False)
+            shot.user = request.user
+            shot.save()
+            return redirect("shots:my_shots")
+    else:
+        form = ShotForm()
+    return render(request, "upload_shot.html", {"form": form})
+from django.contrib.auth.decorators import login_required
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
@@ -149,42 +165,49 @@ def analysis_detail(request, pk):
     return render(request, 'shots/analysis_detail.html', {'analysis': analysis})
 
 
+from django.contrib.auth.decorators import login_required
+
+@login_required
+@login_required
 def shot_list(request):
-    """Show all uploaded shot videos in a responsive Tailwind grid."""
-    # Use ShotAnalysis (uploaded videos) ordered newest first
-    analyses = ShotAnalysis.objects.order_by('-created_at')[:200]
+    """Show all uploaded shot videos for the logged-in user."""
+    analyses = ShotAnalysis.objects.filter(user=request.user).order_by('-created_at')[:200]
     return render(request, 'shots/shot_list.html', {'analyses': analyses})
 
 
-def delete_shot(request, pk):
-    """Delete a ShotAnalysis (and its files) and redirect to the shots list.
-
-    This view only accepts POST requests for safety.
-    """
-    from django.http import HttpResponseNotAllowed
-    if request.method != 'POST':
-        return HttpResponseNotAllowed(['POST'])
-
-    try:
-        sa = ShotAnalysis.objects.get(pk=pk)
-    except ShotAnalysis.DoesNotExist:
-        return redirect('shots:shot_list')
-
-    # Delete files from storage if present
-    try:
-        if sa.video:
-            try:
-                sa.video.delete(save=False)
-            except Exception:
-                pass
-        if sa.processed_video:
-            try:
-                sa.processed_video.delete(save=False)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
+@login_required
+def analyze_upload(request):
+    """Handle uploading a video, run overlay processing, and show the result."""
+    if request.method == 'POST':
+        form = ShotAnalysisForm(request.POST, request.FILES)
+        if form.is_valid():
+            analysis = form.save(commit=False)
+            analysis.user = request.user
+            uploaded_file = request.FILES.get('input_video')
+            if uploaded_file:
+                analysis.input_video.save(uploaded_file.name, uploaded_file, save=False)
+                try:
+                    input_path = analysis.input_video.path
+                    base_name = os.path.splitext(os.path.basename(uploaded_file.name))[0]
+                    output_filename = f"{base_name}_processed.mp4"
+                    output_path = os.path.join(settings.MEDIA_ROOT, 'output', output_filename)
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Starting video processing: {input_path} -> {output_path}")
+                    process_video_with_overlay(input_path, output_path)
+                    logger.info(f"Video processing completed: {output_path}")
+                    with open(output_path, 'rb') as f:
+                        analysis.processed_video.save(output_filename, File(f), save=False)
+                    analysis.save()
+                    messages.success(request, 'Video processed successfully!')
+                    return redirect('shots:analysis_detail', pk=analysis.pk)
+                except Exception as e:
+                    messages.error(request, f'Error processing video: {e}')
+            else:
+                analysis.save()
+                messages.success(request, 'Video uploaded successfully!')
+                return redirect('shots:analysis_detail', pk=analysis.pk)
+    else:
+        form = ShotAnalysisForm()
+    return render(request, 'shots/analyze_form.html', {'form': form})
     # Delete the DB record
-    sa.delete()
-    return redirect('shots:shot_list')
