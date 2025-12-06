@@ -11,14 +11,18 @@
     <div class="flex gap-8 text-lg font-medium">
   <a href="{% url 'shots:analyze_upload' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Analyze Shots</a>
   <a href="{% url 'shots:shot_list' %}" class="ml-4 bg-[#264653] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Shots</a>
-  <a href="/accounts/signup/" class="ml-4 bg-[#22223b] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Sign Up</a>
+  {% if not user.is_authenticated %}
+    <a href="/accounts/login/" class="ml-4 bg-[#22223b] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Log In</a>
+  {% endif %}
     </div>
   </nav>
   <div class="flex flex-col items-center justify-center text-center py-16">
   <img src="/static/images/caddie_baddie_logo.PNG" alt="Caddie Baddie Logo" class="w-48 h-48 object-contain mb-6" />
     <h1 class="text-5xl md:text-6xl font-extrabold text-[#22223b] mb-4">CADDIE BADDIE</h1>
     <p class="text-2xl md:text-3xl font-semibold text-[#3a86ff] mb-8 tracking-wide">MAKE EVERY SWING SHARE-WORTHY.</p>
-  <a href="/accounts/login/" class="bg-[#22223b] text-white text-xl font-bold px-8 py-4 rounded-lg shadow hover:bg-[#3a86ff] transition">GET STARTED</a>
+  {% if not user.is_authenticated %}
+    <a href="/accounts/signup/" class="bg-[#22223b] text-white text-xl font-bold px-8 py-4 rounded-lg shadow hover:bg-[#3a86ff] transition">GET STARTED</a>
+  {% endif %}
   </div>
 </div>
 

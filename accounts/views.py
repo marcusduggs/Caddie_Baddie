@@ -11,29 +11,33 @@ from django.urls import reverse
 class SignUpView(CreateView):
     model = CustomUser
     form_class = CustomUserCreationForm
-    template_name = 'signup.html'
+    template_name = 'accounts/signup.html'
     success_url = reverse_lazy('login')
 
 def login_view(request):
+    from .forms import EmailAuthenticationForm
     if request.method == "POST":
-        email = request.POST.get("username")
-        password = request.POST.get("password")
-        user = authenticate(request, username=email, password=password)
-        if user is not None:
+        form = EmailAuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            user = form.get_user()
             login(request, user)
             return redirect(reverse("shots:shot_list"))
         else:
-            return render(request, "login.html", {"error": "Invalid login details"})
-    return render(request, "login.html")
+            return render(request, "accounts/login.html", {"form": form, "error": "Invalid login details"})
+    else:
+        form = EmailAuthenticationForm()
+    return render(request, "accounts/login.html", {"form": form})
 
 def signup_view(request):
-    User = get_user_model()
+    from .forms import CustomUserCreationForm
     if request.method == "POST":
-        email = request.POST.get("email")
-        password = request.POST.get("password")
-        if User.objects.filter(email=email).exists():
-            return render(request, "signup.html", {"error": "Email already exists."})
-        user = User.objects.create_user(email=email, password=password)
-        login(request, user)
-        return redirect(reverse("shots:my_shots"))
-    return render(request, "signup.html")
+        form = CustomUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect(reverse("shots:shot_list"))
+        else:
+            return render(request, "accounts/signup.html", {"form": form})
+    else:
+        form = CustomUserCreationForm()
+    return render(request, "accounts/signup.html", {"form": form})

@@ -1,0 +1,109 @@
+CMD: /usr/local/bin/ffmpeg -y -i /Users/marcusduggs/Golf_Caddie/media/input/IMG_4275.mov -i /var/folders/_d/nl4vd3js3qn2m8srxyjyns5r0000gn/T/mapbox_map_99b2d94a.png -filter_complex [1:v]scale=384:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10 -map 0:a? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart /Users/marcusduggs/Golf_Caddie/media/output/IMG_4275_processed.mp4
+
+STDOUT:
+
+
+STDERR:
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/usr/local/Cellar/ffmpeg/8.0.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/Users/marcusduggs/Golf_Caddie/media/input/IMG_4275.mov':
+  Metadata:
+    major_brand     : qt  
+    minor_version   : 0
+    compatible_brands: qt  
+    creation_time   : 2025-10-19T00:53:47.000000Z
+    com.apple.quicktime.location.accuracy.horizontal: 13.754133
+    com.apple.quicktime.location.ISO6709: +21.9165-159.5257+268.569/
+    com.apple.quicktime.make: Apple
+    com.apple.quicktime.model: iPhone 12 mini
+    com.apple.quicktime.software: 16.5.1
+    com.apple.quicktime.creationdate: 2023-07-27T10:18:38-1000
+  Duration: 00:00:11.04, start: 0.000000, bitrate: 2473 kb/s
+  Stream #0:0[0x1](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 157 kb/s (default)
+    Metadata:
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+  Stream #0:1[0x2](und): Video: h264 (Main) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1280x720, 2271 kb/s, 29.98 fps, 29.97 tbr, 600 tbn (default)
+    Metadata:
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+      encoder         : H.264
+  Stream #0:2[0x3](und): Data: none (mebx / 0x7862656D), 0 kb/s (default)
+    Metadata:
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Metadata
+  Stream #0:3[0x4](und): Data: none (mebx / 0x7862656D), 0 kb/s (default)
+    Metadata:
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Metadata
+  Stream #0:4[0x5](und): Data: none (mebx / 0x7862656D), 34 kb/s (default)
+    Metadata:
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Metadata
+Input #1, png_pipe, from '/var/folders/_d/nl4vd3js3qn2m8srxyjyns5r0000gn/T/mapbox_map_99b2d94a.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, pal8(pc, gbr/unknown/unknown), 500x600, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:1 (h264) -> overlay
+  Stream #1:0 (png) -> scale:default
+  overlay:default -> Stream #0:0 (libx264)
+  Stream #0:0 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x7fe039706100] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x7fe039706100] profile High, level 3.1, 4:2:0, 8-bit
+[libx264 @ 0x7fe039706100] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=12 lookahead_threads=4 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=1 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=10 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/marcusduggs/Golf_Caddie/media/output/IMG_4275_processed.mp4':
+  Metadata:
+    major_brand     : qt  
+    minor_version   : 0
+    compatible_brands: qt  
+    com.apple.quicktime.creationdate: 2023-07-27T10:18:38-1000
+    com.apple.quicktime.location.accuracy.horizontal: 13.754133
+    com.apple.quicktime.location.ISO6709: +21.9165-159.5257+268.569/
+    com.apple.quicktime.make: Apple
+    com.apple.quicktime.model: iPhone 12 mini
+    com.apple.quicktime.software: 16.5.1
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1280x720, q=2-31, 29.97 fps, 30k tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 128 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      creation_time   : 2025-10-19T00:53:47.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+frame=   24 fps=0.0 q=29.0 size=       0KiB time=00:00:00.73 bitrate=   0.5kbits/s speed=1.46x elapsed=0:00:00.50    
+frame=  124 fps=123 q=29.0 size=     768KiB time=00:00:04.07 bitrate=1545.6kbits/s speed=4.05x elapsed=0:00:01.00    
+frame=  215 fps=143 q=29.0 size=    1280KiB time=00:00:07.10 bitrate=1475.4kbits/s speed=4.72x elapsed=0:00:01.50    
+[mp4 @ 0x7fe039704c80] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x7fe039704bc0] video:2122KiB audio:173KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.571446%
+frame=  331 fps=179 q=-1.0 Lsize=    2308KiB time=00:00:10.97 bitrate=1722.0kbits/s speed=5.93x elapsed=0:00:01.85    
+[libx264 @ 0x7fe039706100] frame I:2     Avg QP:20.73  size: 99568
+[libx264 @ 0x7fe039706100] frame P:86    Avg QP:24.46  size: 18537
+[libx264 @ 0x7fe039706100] frame B:243   Avg QP:29.79  size:  1558
+[libx264 @ 0x7fe039706100] consecutive B-frames:  1.2%  2.4%  0.9% 95.5%
+[libx264 @ 0x7fe039706100] mb I  I16..4: 14.8% 22.8% 62.5%
+[libx264 @ 0x7fe039706100] mb P  I16..4:  1.5%  2.5%  0.5%  P16..4: 34.8% 12.9%  8.2%  0.0%  0.0%    skip:39.6%
+[libx264 @ 0x7fe039706100] mb B  I16..4:  0.1%  0.0%  0.0%  B16..8:  6.5%  2.1%  0.3%  direct: 1.9%  skip:89.1%  L0:26.5% L1:50.9% BI:22.6%
+[libx264 @ 0x7fe039706100] 8x8 transform intra:43.3% inter:22.1%
+[libx264 @ 0x7fe039706100] coded y,uvDC,uvAC intra: 60.0% 44.7% 14.2% inter: 7.4% 2.8% 0.1%
+[libx264 @ 0x7fe039706100] i16 v,h,dc,p: 31% 43% 17%  9%
+[libx264 @ 0x7fe039706100] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  8% 58% 19%  2%  2%  1%  4%  2%  5%
+[libx264 @ 0x7fe039706100] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 18% 22% 16%  7%  8%  6%  8%  7%  9%
+[libx264 @ 0x7fe039706100] i8c dc,h,v,p: 47% 33% 15%  5%
+[libx264 @ 0x7fe039706100] Weighted P-Frames: Y:1.2% UV:0.0%
+[libx264 @ 0x7fe039706100] kb/s:1573.30
+[aac @ 0x7fe039707700] Qavg: 219.941
