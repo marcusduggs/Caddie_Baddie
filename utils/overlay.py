@@ -231,7 +231,8 @@ def _fetch_mapbox_static_image(lon, lat, output_path, width=500, height=600, zoo
         return None
 
 
-def process_video_with_overlay(input_path: str, output_path: str, overlay_path: str = None):
+def process_video_with_overlay(input_path: str, output_path: str, overlay_path: str = None,
+                               course_name: str = None, hole_number: int = None, hole_yardage: int = None, club: str = None, hole_par: int = None):
     """
     Process a golf video by overlaying a map image in the bottom-right corner.
     
@@ -313,7 +314,125 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
     overlay_w = max(64, int(vwidth * 0.30))
 
     # Build ffmpeg filter: scale overlay, keep aspect ratio, then overlay bottom-right with 10px margin
-    filter_complex = f"[1:v]scale={overlay_w}:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10"
+    base_overlay = f"[1:v]scale={overlay_w}:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10"
+
+    # If course/hole text provided, append a drawtext filter to burn text into the video (top-left)
+    drawtext_filter = ""
+    temp_text_files = []
+    if course_name or hole_number or hole_yardage or club:
+        # Compose the individual text parts so we can style them separately:
+        # part_course (prominent), part_main (Hole X — Y yards), part_par (Par N), part_club
+        def _sanitize(s: str) -> str:
+            if not s:
+                return ''
+            s = s.replace('\u00A0', ' ')
+            for ch in ('\u200b', '\u200c', '\u200d', '\ufeff'):
+                s = s.replace(ch, '')
+            s = re.sub(r'[\x00-\x09\x0b-\x1f\x7f-\x9f]', '', s)
+            return s.strip()
+
+        part_course = _sanitize(str(course_name)) if course_name else ''
+        main_parts = []
+        if hole_number:
+            main_parts.append(f"Hole {int(hole_number)}")
+        if hole_yardage:
+            main_parts.append(f"{int(hole_yardage)} yards")
+        part_main = ' — '.join(main_parts) if main_parts else ''
+        part_par = ''
+        # We try to read par from a transient variable _hole_par on analysis, but the view
+        # passes it into process_video_with_overlay as hole_par parameter. Use it if present.
+        # Note: hole_par parameter is provided to this function signature above.
+        if hole_par is not None:
+            try:
+                part_par = f"Par {int(hole_par)}"
+            except Exception:
+                part_par = f"Par {hole_par}"
+        part_club = _sanitize(str(club)) if club else ''
+
+        # Choose font
+        font_paths = [
+            '/Library/Fonts/Arial Bold.ttf',
+            '/Library/Fonts/Arial.ttf',
+            '/System/Library/Fonts/SFNSDisplay.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
+        ]
+        fontfile = None
+        for p in font_paths:
+            if os.path.exists(p):
+                fontfile = p
+                break
+
+        # Font sizes proportional to video width
+        fontsize_course = max(20, int(vwidth * 0.035))
+        fontsize_main = max(16, int(vwidth * 0.028))
+        # Make the par and club lines the same size as the main (Hole X — Y yards)
+        fontsize_small = fontsize_main
+        pad_x = 18
+        pad_y = 14
+
+        # Create temp text files for each visible part (useful to avoid escaping issues)
+        def _write_temp(text, suffix):
+            if not text:
+                return None
+            tf = logs_dir / f"overlay_text_{suffix}_{uuid.uuid4().hex[:8]}.txt"
+            try:
+                with open(tf, 'w', encoding='utf-8') as fh:
+                    fh.write(text)
+                temp_text_files.append(tf)
+                return tf
+            except Exception:
+                return None
+
+        tf_course = _write_temp(part_course, 'course')
+        tf_main = _write_temp(part_main, 'main')
+        tf_par = _write_temp(part_par, 'par')
+        tf_club = _write_temp(part_club, 'club')
+
+        # Compute box dimensions (approximate): width is a fraction of video width, height based on font sizes and visible lines
+        box_w = min( int(vwidth * 0.48), int(vwidth * 0.9) )
+        visible_lines = sum(1 for t in (part_course, part_main, part_par, part_club) if t)
+        box_h = pad_y * 2 + fontsize_course * (1 if part_course else 0) + fontsize_main * (1 if part_main else 0) + fontsize_small * ( (1 if part_par else 0) + (1 if part_club else 0) ) + max(0, (visible_lines - 1) * 6)
+
+        # Build a drawbox filter to render a single semi-transparent background behind the text
+        # Use slightly rounded corners would be nicer but drawbox doesn't support rounding; keep it simple.
+        box_x = 10
+        box_y = 10
+        drawbox = f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:color=black@0.55:t=fill"
+
+        # Build drawtext filters for each line (place them stacked inside the box)
+        drawtexts = []
+        # course (top)
+        if tf_course:
+            y_course = box_y + pad_y
+            font_arg = f"fontfile={fontfile}:" if fontfile else ""
+            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_course)}:reload=0:fontcolor=white:fontsize={fontsize_course}:x={box_x+pad_x}:y={y_course}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
+            y_next = y_course + fontsize_course + 6
+        else:
+            y_next = box_y + pad_y
+
+        # main (hole + yardage)
+        if tf_main:
+            y_main = y_next
+            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_main)}:reload=0:fontcolor=white:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_main}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
+            y_next = y_main + fontsize_main + 6
+
+        # par
+        if tf_par:
+            y_par = y_next
+            # Use the same font size as the main hole line for visual consistency
+            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_par)}:reload=0:fontcolor=#e6e6e6:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_par}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
+            y_next = y_par + fontsize_main + 4
+
+        # club
+        if tf_club:
+            y_club = y_next
+            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_club)}:reload=0:fontcolor=#ddddff:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_club}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
+
+        # Combine drawbox + drawtexts into drawtext_filter (comma-separated)
+        drawtext_filter = drawbox + ("," + ",".join(drawtexts) if drawtexts else "")
+
+    filter_complex = base_overlay + ("," + drawtext_filter if drawtext_filter else "")
 
     print(f"[FFmpeg] Processing video with overlay...")
     
@@ -348,6 +467,18 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
             print(f"[Cleanup] Removed temporary map file")
         except Exception as e:
             logger.warning(f"Failed to remove temp map file: {e}")
+    # Clean up temporary text files used for drawtext (if any)
+    try:
+        for tf in temp_text_files:
+            try:
+                if tf is not None and tf.exists():
+                    os.remove(str(tf))
+                    print(f"[Cleanup] Removed temporary drawtext file: {tf}")
+            except Exception:
+                pass
+    except Exception:
+        # temp_text_files may not exist in some code paths
+        pass
 
     # Check for errors
     if proc.returncode != 0:

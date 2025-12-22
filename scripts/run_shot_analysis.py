@@ -20,6 +20,7 @@ print('Processed path:', proc, 'exists?', os.path.exists(proc))
 
 # Create ShotAnalysis and save files to media via FileField
 sa = ShotAnalysis()
+sa.status = 'uploading'
 with open(orig, 'rb') as f:
     sa.video.save(os.path.basename(orig), File(f), save=False)
 with open(proc, 'rb') as f:

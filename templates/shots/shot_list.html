@@ -17,9 +17,13 @@
               <p class="text-sm text-gray-600">Distance: {% if a.distance %}{{ a.distance }} yd{% else %}—{% endif %}</p>
             </div>
             <div class="mb-2">
-              {% if a.video %}
+              {% if a.thumbnail %}
+                <div class="w-full h-40 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
+                  <img src="{{ a.thumbnail.url }}" alt="Shot thumbnail" class="h-40 w-auto object-cover" />
+                </div>
+              {% elif a.input_video %}
                 <video class="w-full rounded" controls>
-                  <source src="{{ a.video.url }}" type="video/mp4">
+                  <source src="{{ a.input_video.url }}" type="video/mp4">
                   Your browser does not support the video tag.
                 </video>
               {% else %}
@@ -29,7 +33,13 @@
               {% endif %}
             </div>
             <div class="mt-3">
-              <a href="{% url 'shots:analysis_detail' a.pk %}" class="text-sm text-blue-600 hover:underline">View details</a>
+              <div class="flex items-center gap-3">
+                <a href="{% url 'shots:analysis_detail' a.pk %}" class="text-sm text-blue-600 hover:underline">View details</a>
+                <form method="post" action="{% url 'shots:delete_shot' a.pk %}" onsubmit="return confirm('Delete this shot? This cannot be undone.');">
+                  {% csrf_token %}
+                  <button type="submit" class="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">Delete</button>
+                </form>
+              </div>
             </div>
           </div>
         {% endfor %}

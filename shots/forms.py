@@ -1,5 +1,5 @@
 from django import forms
-from .models import Shot
+from .models import Shot, ShotAnalysis
 
 
 class ShotForm(forms.ModelForm):
@@ -34,9 +34,23 @@ class ShotAnalysisForm(forms.ModelForm):
 
     club = forms.ChoiceField(choices=CLUB_CHOICES, required=True, label='Club')
     distance = forms.FloatField(required=True, label='Distance (yards)', widget=forms.NumberInput(attrs={'placeholder': 'e.g. 120'}))
+    # Optional golf course + hole info to enrich overlays
+    course = forms.CharField(required=False, max_length=200, label='Course (optional)', widget=forms.TextInput(attrs={'placeholder': 'Course name, e.g. Pebble Beach'}))
+    hole = forms.IntegerField(required=False, min_value=1, max_value=18, label='Hole (optional)', widget=forms.NumberInput(attrs={'placeholder': 'Hole number (1-18)'}))
+    # Tee selection: let user pick a tee set; default blank means 'any'
+    TEE_CHOICES = [
+        ('', 'Any'),
+        ('Blue', 'Blue'),
+        ('White', 'White'),
+        ('Gold', 'Gold'),
+        ('Gold Combo', 'Gold Combo'),
+        ('Red', 'Red'),
+        ('Green', 'Green'),
+        ('Black', 'Black'),
+    ]
+    selected_tee = forms.ChoiceField(choices=TEE_CHOICES, required=False, label='Preferred tee (optional)')
 
     class Meta:
-        from .models import ShotAnalysis
         model = ShotAnalysis
         fields = ['input_video', 'club', 'distance']
 
