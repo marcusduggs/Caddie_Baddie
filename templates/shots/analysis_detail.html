@@ -11,12 +11,26 @@
       <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
         📋 View All Shots
       </a>
+      <form method="post" action="{% url 'shots:toggle_favorite' analysis.pk %}">
+        {% csrf_token %}
+        {% if analysis.is_favorite %}
+          <button type="submit" class="inline-block bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition">⭐ Unshare</button>
+        {% else %}
+          <button type="submit" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">⭐ Share</button>
+        {% endif %}
+      </form>
     </div>
 
     <!-- Shot Details -->
     <div class="bg-white shadow-md rounded-lg p-6 mb-6">
       <h3 class="text-xl font-semibold mb-4">🏌️ Shot Details</h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% if analysis.stroke_number %}
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Stroke</p>
+          <p class="text-lg font-medium">#{{ analysis.stroke_number }}</p>
+        </div>
+        {% endif %}
         <div class="bg-gray-50 p-4 rounded-lg">
           <p class="text-gray-600 text-sm">Club</p>
           <p class="text-lg font-medium">⛳ {{ analysis.club }}</p>

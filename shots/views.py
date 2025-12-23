@@ -18,6 +18,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
 from .models import Shot
+from django.db.models import Count
 from .forms import ShotForm
 from . import utils
 from . import overlay_map
@@ -25,6 +26,7 @@ import os
 from django.conf import settings
 from .forms import ShotAnalysisForm
 from .models import ShotAnalysis
+from .models import CourseMetadata
 from django.core.files import File
 import shutil
 from django.utils.text import slugify
@@ -38,6 +40,44 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+
+def probe_video_creation_time(path):
+    """Try to extract creation_time metadata from a video using ffprobe.
+    Returns a naive datetime in UTC if found, otherwise None.
+    Falls back to file mtime externally if ffprobe not available or no metadata.
+    """
+    try:
+        # Call ffprobe to get format tags
+        cmd = [FFMPEG_PATH or 'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', path]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if proc.returncode == 0 and proc.stdout:
+            import json
+            payload = json.loads(proc.stdout.decode('utf-8'))
+            fmt = payload.get('format', {})
+            tags = fmt.get('tags', {})
+            # Common tag names: creation_time, CreationTime
+            for key in ('creation_time', 'CreationTime'):
+                if key in tags and tags[key]:
+                    try:
+                        from dateutil import parser as dateparser
+                        dt = dateparser.parse(tags[key])
+                        # Convert to naive UTC
+                        import datetime
+                        if dt.tzinfo:
+                            dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                        return dt
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    # fallback to file mtime
+    try:
+        import datetime
+        mtime = os.path.getmtime(path)
+        return datetime.datetime.utcfromtimestamp(mtime)
+    except Exception:
+        return None
 
 # Hard-coded Golf Course API key override for local testing.
 # WARNING: Hard-coding secrets in source is insecure. Replace the placeholder
@@ -251,7 +291,8 @@ from django.contrib.auth.decorators import login_required
 @login_required
 def shot_list(request):
     """Show all uploaded shot videos for the logged-in user."""
-    analyses = ShotAnalysis.objects.filter(user=request.user).order_by('-created_at')[:200]
+    # Only show shots marked as favorites on the shots index (shared shots)
+    analyses = ShotAnalysis.objects.filter(user=request.user, is_favorite=True).order_by('-created_at')[:200]
     return render(request, 'shots/shot_list.html', {'analyses': analyses})
 
 
@@ -289,6 +330,185 @@ def delete_shot(request, pk):
 
 
 @login_required
+def courses_list(request):
+    """List distinct course names from the user's ShotAnalysis records."""
+    # Gather non-empty course names for the user
+    qs = ShotAnalysis.objects.filter(user=request.user).exclude(course_name__isnull=True).exclude(course_name__exact='')
+    # Annotate unique course names and counts
+    courses = qs.values('course_name').annotate(count=Count('id')).order_by('course_name')
+    # Convert to (name, slug, count)
+    course_items = [{'name': c['course_name'], 'slug': slugify(c['course_name']), 'count': c['count']} for c in courses]
+    return render(request, 'shots/courses_list.html', {'courses': course_items})
+
+
+@login_required
+def toggle_favorite(request, pk):
+    """Toggle the is_favorite flag for a ShotAnalysis owned by the user."""
+    if request.method != 'POST':
+        return redirect('shots:shot_list')
+
+    sa = get_object_or_404(ShotAnalysis, pk=pk)
+    if sa.user != request.user:
+        messages.error(request, 'You do not have permission to modify this shot.')
+        return redirect(request.META.get('HTTP_REFERER', 'shots:shot_list'))
+
+    sa.is_favorite = not bool(sa.is_favorite)
+    sa.save()
+    if sa.is_favorite:
+        messages.success(request, 'Shot shared to favorites.')
+    else:
+        messages.success(request, 'Shot removed from favorites.')
+
+    return redirect(request.META.get('HTTP_REFERER', 'shots:shot_list'))
+
+
+@login_required
+def course_holes(request, course_slug):
+    """List holes for a given course (slug) with counts."""
+    # Recreate course name by finding matching records (case-insensitive slug match)
+    # We match by slugifying stored course_name values
+    all_courses = ShotAnalysis.objects.filter(user=request.user).exclude(course_name__isnull=True).exclude(course_name__exact='')
+    # Build mapping slug -> original name
+    slug_map = {}
+    for c in all_courses.values_list('course_name', flat=True).distinct():
+        slug_map[slugify(c)] = c
+    course_name = slug_map.get(course_slug)
+    if not course_name:
+        return render(request, 'shots/course_holes.html', {'course_name': course_slug, 'holes': []})
+    # Get holes for this course
+    holes_qs = ShotAnalysis.objects.filter(user=request.user, course_name=course_name).exclude(hole_number__isnull=True)
+    holes = holes_qs.values('hole_number').annotate(count=Count('id')).order_by('hole_number')
+    hole_items = [{'hole': h['hole_number'], 'count': h['count']} for h in holes]
+
+    # Attempt to load cached CourseMetadata
+    course_info = {'address': None, 'hole_count': None, 'par_total': None}
+    slug = course_slug
+    CACHE_TTL_DAYS = 30
+    try:
+        cm = CourseMetadata.objects.filter(course_slug=slug).first()
+        refresh = True
+        if cm:
+            import datetime
+            age = datetime.datetime.utcnow() - cm.fetched_at.replace(tzinfo=None)
+            if age.days < CACHE_TTL_DAYS:
+                # use cache
+                course_info['address'] = cm.address
+                course_info['hole_count'] = cm.hole_count
+                course_info['par_total'] = cm.par_total
+                refresh = False
+    except Exception:
+        cm = None
+        refresh = True
+
+    if refresh:
+        # Fetch from API and upsert cache
+        api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+        if api_key:
+            try:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': course_name}, headers={'Authorization': f'Key {api_key}'}, timeout=8)
+                if resp.status_code == 200:
+                    try:
+                        payload = resp.json()
+
+                        def find_address(obj):
+                            if isinstance(obj, dict):
+                                for k in ('address', 'address_line1', 'formatted_address'):
+                                    if k in obj and obj.get(k):
+                                        return obj.get(k)
+                                for v in obj.values():
+                                    res = find_address(v)
+                                    if res:
+                                        return res
+                            elif isinstance(obj, list):
+                                for it in obj:
+                                    res = find_address(it)
+                                    if res:
+                                        return res
+                            return None
+
+                        def find_hole_info(obj):
+                            if isinstance(obj, dict):
+                                if 'holes' in obj and isinstance(obj.get('holes'), list):
+                                    holes = obj.get('holes')
+                                    hole_count = len(holes)
+                                    par_sum = 0
+                                    found_par = False
+                                    for h in holes:
+                                        if isinstance(h, dict):
+                                            for pkey in ('par', 'par_value', 'par_total'):
+                                                if pkey in h and h.get(pkey) is not None:
+                                                    try:
+                                                        par_sum += int(h.get(pkey))
+                                                        found_par = True
+                                                    except Exception:
+                                                        pass
+                                    return (hole_count if hole_count else None, par_sum if found_par else None)
+
+                                for k in ('par_total', 'total_par', 'course_par'):
+                                    if k in obj and obj.get(k) is not None:
+                                        try:
+                                            return (None, int(obj.get(k)))
+                                        except Exception:
+                                            pass
+
+                                for v in obj.values():
+                                    res = find_hole_info(v)
+                                    if res and (res[0] or res[1]):
+                                        return res
+
+                            elif isinstance(obj, list):
+                                for it in obj:
+                                    res = find_hole_info(it)
+                                    if res and (res[0] or res[1]):
+                                        return res
+                            return (None, None)
+
+                        addr = find_address(payload)
+                        hole_count, par_total = find_hole_info(payload)
+                        # update course_info
+                        if addr:
+                            course_info['address'] = addr
+                        if hole_count:
+                            course_info['hole_count'] = hole_count
+                        if par_total:
+                            course_info['par_total'] = par_total
+
+                        # upsert cache
+                        try:
+                            if cm:
+                                cm.address = course_info['address']
+                                cm.hole_count = course_info['hole_count']
+                                cm.par_total = course_info['par_total']
+                                cm.name = course_name
+                                cm.save()
+                            else:
+                                CourseMetadata.objects.create(course_slug=slug, name=course_name, address=course_info['address'], hole_count=course_info['hole_count'], par_total=course_info['par_total'])
+                        except Exception:
+                            pass
+                    except ValueError:
+                        pass
+            except requests.RequestException:
+                pass
+
+    return render(request, 'shots/course_holes.html', {'course_name': course_name, 'course_slug': course_slug, 'holes': hole_items, 'course_info': course_info})
+
+
+@login_required
+def hole_shots(request, course_slug, hole):
+    """List ShotAnalysis entries for a given course and hole number."""
+    # Resolve course name like above
+    all_courses = ShotAnalysis.objects.filter(user=request.user).exclude(course_name__isnull=True).exclude(course_name__exact='')
+    slug_map = {slugify(c): c for c in all_courses.values_list('course_name', flat=True).distinct()}
+    course_name = slug_map.get(course_slug)
+    if not course_name:
+        analyses = []
+    else:
+        analyses = ShotAnalysis.objects.filter(user=request.user, course_name=course_name, hole_number=hole).order_by('-created_at')
+    return render(request, 'shots/hole_shots.html', {'analyses': analyses, 'course_name': course_name or course_slug, 'hole': hole, 'course_slug': course_slug})
+
+
+@login_required
 def analyze_upload(request):
     """Handle uploading a video, read course/hole inputs, start background processing, and return result.
 
@@ -300,11 +520,7 @@ def analyze_upload(request):
     if request.method == 'POST':
         form = ShotAnalysisForm(request.POST, request.FILES)
         if form.is_valid():
-            analysis = form.save(commit=False)
-            analysis.user = request.user
-            uploaded_file = request.FILES.get('input_video')
-
-            # Read optional fields from POST
+            # Read optional fields from POST (apply to all uploaded files)
             course_name = request.POST.get('course', '').strip() or None
             hole_str = request.POST.get('hole', '').strip() or None
             selected_tee = request.POST.get('selected_tee', '').strip() or None
@@ -313,36 +529,103 @@ def analyze_upload(request):
             except Exception:
                 hole_number = None
 
-            if uploaded_file:
-                # Save uploaded file to model
+            uploaded_files = request.FILES.getlist('input_video') or []
+            if not uploaded_files:
+                messages.error(request, 'No video file uploaded.')
+                return render(request, 'shots/analyze_form.html', {'form': form})
+
+            created_pks = []
+            # Determine global club/distance from form.cleaned_data if present
+            try:
+                global_club = form.cleaned_data.get('club')
+                global_distance = form.cleaned_data.get('distance')
+            except Exception:
+                global_club = None
+                global_distance = None
+
+            # Build (uploaded_file, capture_time) list
+            file_time_pairs = []
+            for uploaded_file in uploaded_files:
+                # temporarily save to a temp path to allow probing if file-like doesn't have path
+                tmp_path = None
+                try:
+                    # If InMemoryUploadedFile, save to temp location
+                    if hasattr(uploaded_file, 'temporary_file_path'):
+                        tmp_path = uploaded_file.temporary_file_path()
+                    else:
+                        # write to a temp file in MEDIA_ROOT/input_tmp
+                        tmp_dir = os.path.join(settings.MEDIA_ROOT, 'input_tmp')
+                        os.makedirs(tmp_dir, exist_ok=True)
+                        tmp_path = os.path.join(tmp_dir, f"upload_{uuid.uuid4().hex}_{uploaded_file.name}")
+                        with open(tmp_path, 'wb') as tf:
+                            for chunk in uploaded_file.chunks():
+                                tf.write(chunk)
+                except Exception:
+                    tmp_path = None
+                try:
+                    ts = probe_video_creation_time(tmp_path) if tmp_path else None
+                except Exception:
+                    ts = None
+                file_time_pairs.append({'file': uploaded_file, 'tmp_path': tmp_path, 'timestamp': ts})
+
+            # Sort by timestamp ascending (None treated as far future so it appears last)
+            import datetime
+            def _sort_key(item):
+                if item['timestamp'] is None:
+                    return datetime.datetime.max
+                return item['timestamp']
+
+            file_time_pairs.sort(key=_sort_key)
+
+            # Assign stroke numbers starting at 1 based on sorted order
+            for stroke_num, pair in enumerate(file_time_pairs, start=1):
+                uploaded_file = pair['file']
+                tmp_path = pair.get('tmp_path')
+                # Per-file metadata keys (club_0, distance_0)
+                per_club = request.POST.get(f'club_{stroke_num-1}', '').strip() or None
+                per_distance_raw = request.POST.get(f'distance_{stroke_num-1}', '').strip() or None
+                try:
+                    per_distance = float(per_distance_raw) if per_distance_raw else None
+                except Exception:
+                    per_distance = None
+                # Create a new ShotAnalysis instance per uploaded file
+                analysis = ShotAnalysis()
+                analysis.user = request.user
+                # copy fields from form.cleaned_data where present
+                try:
+                    cleaned = form.cleaned_data
+                except Exception:
+                    cleaned = {}
+                # Use per-file values if provided, otherwise fall back to global values
+                analysis.club = per_club or global_club or (cleaned.get('club') if cleaned else None)
+                analysis.distance = per_distance if per_distance is not None else (global_distance if global_distance is not None else (cleaned.get('distance') if cleaned else None))
+
+                # Save uploaded file to model (this writes to MEDIA_ROOT/input/)
                 analysis.input_video.save(uploaded_file.name, uploaded_file, save=False)
 
-                # Generate a thumbnail frame from the uploaded video (fast, single-frame)
+                # Generate thumbnail per file (best-effort)
                 try:
                     base_name = os.path.splitext(os.path.basename(uploaded_file.name))[0]
                     thumb_dir = os.path.join(settings.MEDIA_ROOT, 'thumbnails')
                     os.makedirs(thumb_dir, exist_ok=True)
                     thumb_filename = f"{base_name}.jpg"
                     thumb_path = os.path.join(thumb_dir, thumb_filename)
-                    # Use ffmpeg to grab a frame at 1 second; fallback to 0 if video shorter
                     ff_cmd = [FFMPEG_PATH or 'ffmpeg', '-y', '-ss', '00:00:01', '-i', analysis.input_video.path, '-vframes', '1', '-q:v', '2', thumb_path]
                     try:
                         subprocess.run(ff_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-                        # Save to model field if file created
                         if os.path.exists(thumb_path):
                             with open(thumb_path, 'rb') as tf:
                                 analysis.thumbnail.save(thumb_filename, File(tf), save=False)
                     except Exception:
-                        # Non-fatal: don't interrupt upload if thumbnail generation fails
                         pass
                 except Exception:
-                    # Be defensive — if any path or file ops fail, ignore thumbnail creation
                     pass
 
                 # Try to fetch hole yardage from Golf Course API if course+hole provided
                 yardage = None
+                par = None
+                used_tee = None
                 if course_name and hole_number:
-                    # Prefer hard-coded key for local testing if provided, otherwise fall back to env var
                     api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
                     if api_key:
                         try:
@@ -352,30 +635,13 @@ def analyze_upload(request):
                                 try:
                                     payload = resp.json()
 
-                                    # robust recursive search for hole yardage
                                     def find_yardage_recursive(obj, hole, preferred_tee=None):
-                                        """Walk a nested structure (dict/list) and find yardage for the given hole number.
-
-                                        This function handles different payload shapes from the Golf Course API.
-                                        - If it finds a dict with a 'holes' list it will index into that list using
-                                          (hole - 1) and return the yardage if present.
-                                        - If it finds a list of hole dicts (each containing 'yardage' or 'par') it
-                                          will treat the list index+1 as the hole number and return the corresponding
-                                          yardage.
-                                        - Otherwise it will look for explicit hole-number keys ('number', 'hole',
-                                          'hole_number') and yardage keys ('yardage','yards','length','tee_yards').
-                                        """
                                         try:
-                                            # Dict case: check for explicit 'holes' list (common in sample payload)
                                             if isinstance(obj, dict):
-                                                # If this dict contains 'tees', try to honor preferred_tee
                                                 if 'tees' in obj and isinstance(obj.get('tees'), dict):
                                                     tees_obj = obj.get('tees')
-                                                    # tees_obj may have keys like 'male'/'female' mapping to lists of tee definitions
-                                                    # Iterate through groups and tee lists to find a matching tee_name
                                                     for group_name, tee_list in tees_obj.items():
                                                         if isinstance(tee_list, list):
-                                                            # First, if preferred_tee provided, try to match it (case-insensitive substring)
                                                             if preferred_tee:
                                                                 for tee in tee_list:
                                                                     tn = (tee.get('tee_name') or '').lower()
@@ -393,7 +659,6 @@ def analyze_upload(request):
                                                                                     except Exception:
                                                                                         p_val = None
                                                                                     return (int(y), p_val, f"{group_name}.{tee.get('tee_name')}")
-                                                            # If no preferred match, fallback to first tee with holes
                                                             for tee in tee_list:
                                                                 holes = tee.get('holes')
                                                                 if isinstance(holes, list):
@@ -409,7 +674,6 @@ def analyze_upload(request):
                                                                                 p_val = None
                                                                             return (int(y), p_val, f"{group_name}.{tee.get('tee_name')}")
 
-                                                # If this dict contains a 'holes' key that's a list, try to index it
                                                 if 'holes' in obj and isinstance(obj.get('holes'), list):
                                                     holes = obj.get('holes')
                                                     idx = int(hole) - 1
@@ -424,7 +688,6 @@ def analyze_upload(request):
                                                                 p_val = None
                                                             return (int(y), p_val, None)
 
-                                                # check if this dict looks like a hole entry with an explicit number
                                                 possible_num = None
                                                 for k in ('number', 'hole', 'hole_number'):
                                                     if k in obj:
@@ -446,21 +709,16 @@ def analyze_upload(request):
                                                                     except Exception:
                                                                         pass
                                                     except Exception:
-                                                        # ignore parse errors for possible_num
                                                         pass
 
-                                                # recurse into dict values
                                                 for v in obj.values():
                                                     res = find_yardage_recursive(v, hole, preferred_tee)
                                                     if res is not None:
                                                         return res
                                                 return None
 
-                                            # List case: if it's a list of hole dicts, use index
                                             if isinstance(obj, list):
-                                                # If list looks like list of holes (dicts with 'yardage' or 'par')
                                                 if len(obj) > 0 and all(isinstance(it, dict) for it in obj):
-                                                    # Treat list index as hole number
                                                     try:
                                                         idx = int(hole) - 1
                                                         if 0 <= idx < len(obj):
@@ -476,7 +734,6 @@ def analyze_upload(request):
                                                     except Exception:
                                                         pass
 
-                                                # Otherwise recurse into list items
                                                 for item in obj:
                                                     res = find_yardage_recursive(item, hole, preferred_tee)
                                                     if res is not None:
@@ -484,12 +741,10 @@ def analyze_upload(request):
                                                 return None
 
                                         except Exception:
-                                            # Defensive: on any unexpected structure, bail to caller
                                             return None
 
                                     res = find_yardage_recursive(payload, hole_number, selected_tee)
                                     if res:
-                                        # res is a tuple (yardage, par, used_tee) where used_tee may be None
                                         yardage, par, used_tee = res
                                     else:
                                         yardage = None
@@ -509,44 +764,44 @@ def analyze_upload(request):
                     analysis.selected_tee = selected_tee
                 if yardage:
                     analysis.hole_yardage = yardage
-                if 'par' in locals() and par is not None:
-                    # Persist par to the model so it survives reprocesses and can be shown later
+                if par is not None:
                     analysis.hole_par = par
-
-                if 'used_tee' in locals() and used_tee:
+                if used_tee:
                     analysis.used_tee = used_tee
-
-                # If yardage came with a used_tee label returned from extractor, set it (handled below)
 
                 analysis.save()
 
-                # Start background processing thread (processes video and updates analysis when done)
-                input_path = analysis.input_video.path
-                base_name = os.path.splitext(os.path.basename(uploaded_file.name))[0]
-                output_filename = f"{base_name}_processed.mp4"
-                output_path = os.path.join(settings.MEDIA_ROOT, 'output', output_filename)
+                # Start background processing thread per analysis
+                try:
+                    input_path = analysis.input_video.path
+                    base_name = os.path.splitext(os.path.basename(uploaded_file.name))[0]
+                    output_filename = f"{base_name}_processed.mp4"
+                    output_path = os.path.join(settings.MEDIA_ROOT, 'output', output_filename)
 
-                thread = threading.Thread(target=process_video_background, args=(analysis.pk, input_path, output_path, locals().get('par', None)), daemon=False)
-                thread.start()
+                    thread = threading.Thread(target=process_video_background, args=(analysis.pk, input_path, output_path, par), daemon=False)
+                    thread.start()
+                except Exception:
+                    # non-fatal: continue to next file
+                    pass
 
-                # Build redirect with query params so frontend can read course/hole/yardage
-                params = {}
-                if course_name:
-                    params['course'] = course_name
-                if hole_number:
-                    params['hole'] = str(hole_number)
-                if yardage:
-                    params['yardage'] = str(yardage)
-                if 'par' in locals() and par is not None:
-                    params['par'] = str(par)
+                # persist stroke ordering
+                try:
+                    analysis.stroke_number = stroke_num
+                    analysis.save()
+                except Exception:
+                    analysis.save()
+                created_pks.append(analysis.pk)
 
-                query = ('?' + urllib.parse.urlencode(params)) if params else ''
-                messages.success(request, 'Video uploaded successfully! Processing has started.')
-                return redirect(f"{reverse('shots:analysis_detail', kwargs={'pk': analysis.pk})}{query}")
-            else:
-                # No file uploaded
-                messages.error(request, 'No video file uploaded.')
-                return render(request, 'shots/analyze_form.html', {'form': form})
+                # Cleanup temp file if created
+                try:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass
+
+            # After processing all files, redirect to shots list with success message
+            messages.success(request, f'{len(created_pks)} video(s) uploaded successfully! Processing has started.')
+            return redirect('shots:shot_list')
     else:
         form = ShotAnalysisForm()
     return render(request, 'shots/analyze_form.html', {'form': form})

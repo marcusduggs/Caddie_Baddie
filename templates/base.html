@@ -42,9 +42,12 @@
             </a>
           </h1>
         </div>
-        {% if user.is_authenticated %}
-          <a href="{% url 'logout' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition ml-4">Log Out</a>
-        {% endif %}
+        <div class="flex items-center gap-3">
+          <a href="{% url 'shots:courses_list' %}" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Courses</a>
+          {% if user.is_authenticated %}
+            <a href="{% url 'logout' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Log Out</a>
+          {% endif %}
+        </div>
       </div>
     </header>
     <main class="container mx-auto px-4 py-6">

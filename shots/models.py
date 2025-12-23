@@ -47,7 +47,24 @@ class ShotAnalysis(models.Model):
     used_tee = models.CharField(max_length=128, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Assigned stroke order based on video capture time (1 = oldest)
+    stroke_number = models.IntegerField(blank=True, null=True)
+    # Mark this shot as a favorite (shared to the public/favorites page)
+    is_favorite = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Analysis {self.id} — {self.input_video.name if self.input_video else 'no-video'}"
+
+
+class CourseMetadata(models.Model):
+    """Cache for golf course metadata fetched from external API."""
+    course_slug = models.SlugField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    address = models.TextField(blank=True, null=True)
+    hole_count = models.IntegerField(blank=True, null=True)
+    par_total = models.IntegerField(blank=True, null=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.course_slug})"
 
