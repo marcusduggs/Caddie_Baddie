@@ -49,6 +49,12 @@ class ShotAnalysis(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     # Assigned stroke order based on video capture time (1 = oldest)
     stroke_number = models.IntegerField(blank=True, null=True)
+    # Server-side ffprobe-extracted creation time (UTC naive)
+    probe_creation_time = models.DateTimeField(blank=True, null=True)
+    # Client-side timestamp captured when the user selected the file in the browser
+    client_added_time = models.DateTimeField(blank=True, null=True)
+    # Optional reference to a playing session/round so multiple uploads on different days can be grouped
+    round = models.ForeignKey('ShotRound', on_delete=models.SET_NULL, null=True, blank=True, related_name='analyses')
     # Mark this shot as a favorite (shared to the public/favorites page)
     is_favorite = models.BooleanField(default=False)
 
@@ -67,4 +73,20 @@ class CourseMetadata(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.course_slug})"
+
+
+class ShotRound(models.Model):
+    """Represents a played round/session so shots can be grouped by date/name."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    name = models.CharField(max_length=200, blank=True, null=True)
+    course_name = models.CharField(max_length=200, blank=True, null=True)
+    hole_number = models.IntegerField(blank=True, null=True)
+    played_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        label = self.name or (self.course_name or 'Round')
+        if self.played_at:
+            return f"{label} — {self.played_at.date()}"
+        return label
 

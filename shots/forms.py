@@ -32,8 +32,8 @@ class ShotAnalysisForm(forms.ModelForm):
         ('Other', 'Other'),
     ]
 
-    club = forms.ChoiceField(choices=CLUB_CHOICES, required=True, label='Club')
-    distance = forms.FloatField(required=True, label='Distance (yards)', widget=forms.NumberInput(attrs={'placeholder': 'e.g. 120'}))
+    club = forms.ChoiceField(choices=CLUB_CHOICES, required=False, label='Club')
+    distance = forms.FloatField(required=False, label='Distance (yards)', widget=forms.NumberInput(attrs={'placeholder': 'e.g. 120'}))
     # Optional golf course + hole info to enrich overlays
     course = forms.CharField(required=False, max_length=200, label='Course (optional)', widget=forms.TextInput(attrs={'placeholder': 'Course name, e.g. Pebble Beach'}))
     hole = forms.IntegerField(required=False, min_value=1, max_value=18, label='Hole (optional)', widget=forms.NumberInput(attrs={'placeholder': 'Hole number (1-18)'}))

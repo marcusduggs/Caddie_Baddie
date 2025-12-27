@@ -4,7 +4,6 @@
   <div class="max-w-2xl mx-auto">
     <h2 class="text-3xl font-bold mb-6">📹 Upload Swing Video</h2>
     
-    <!-- Messages -->
     {% if messages %}
       {% for message in messages %}
         <div class="mb-4 p-4 rounded-lg {% if message.tags == 'success' %}bg-green-100 text-green-800{% elif message.tags == 'error' %}bg-red-100 text-red-800{% else %}bg-blue-100 text-blue-800{% endif %}">
@@ -12,33 +11,35 @@
         </div>
       {% endfor %}
     {% endif %}
+
+  <!-- Debug UI removed -->
     
     <!-- Upload Form -->
     <form method="post" enctype="multipart/form-data" class="bg-white shadow-md rounded-lg p-6 mb-6">
       {% csrf_token %}
+
+      <!-- Round selection / new round creation -->
+      <div class="max-w-2xl mx-auto mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 Round (optional)</label>
+        <select name="round_id" id="round-select" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2 mb-2">
+          <option value="">Choose existing round</option>
+          {% for r in rounds %}
+            <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}">{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
+          {% empty %}
+            <!-- no existing rounds -->
+          {% endfor %}
+        </select>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input type="text" name="new_round_name" placeholder="New round name (optional)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+          <input type="datetime-local" name="new_round_played_at" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+        </div>
+        <p class="mt-1 text-sm text-gray-500">Optional — attach uploads to an existing round or create a new one.</p>
+  <div class="mt-2 text-sm text-gray-600">Pick an existing round from the menu or enter a new round name and date inline.</div>
+        <div id="selected-round-display" class="mt-2 text-sm text-gray-700 hidden"></div>
+      </div>
       
       <div class="space-y-4">
-        <!-- Club Selection -->
-        <div>
-          <label for="{{ form.club.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
-            ⛳ Club
-          </label>
-          {{ form.club }}
-          {% if form.club.errors %}
-            <p class="mt-1 text-sm text-red-600">{{ form.club.errors.0 }}</p>
-          {% endif %}
-        </div>
-        
-        <!-- Distance Input -->
-        <div>
-          <label for="{{ form.distance.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
-            📏 Distance (yards)
-          </label>
-          {{ form.distance }}
-          {% if form.distance.errors %}
-            <p class="mt-1 text-sm text-red-600">{{ form.distance.errors.0 }}</p>
-          {% endif %}
-        </div>
+  <!-- Removed global Club and Distance inputs: per-file controls appear after selecting files -->
         
         <!-- Course name (optional) -->
         <div>
@@ -94,6 +95,7 @@
           >
           <p class="mt-2 text-sm text-gray-500">📱 Choose from camera roll or record new video</p>
           <p id="file-info" class="mt-2 text-sm text-blue-600 hidden"></p>
+          <p class="mt-2 text-sm text-gray-500">Files will be ordered by capture time; per-file club/distance stay attached to the file you selected.</p>
           <div id="per-file-meta" class="mt-4 space-y-3"></div>
           {% if form.input_video.errors %}
             <p class="mt-1 text-sm text-red-600">{{ form.input_video.errors.0 }}</p>
@@ -201,16 +203,25 @@
         files.forEach((f, i) => {
           const wrapper = document.createElement('div');
           wrapper.className = 'bg-gray-50 p-3 rounded border border-gray-200';
-          wrapper.innerHTML = `
+          // We'll attempt to extract creation_time from MP4/QuickTime atoms for greater accuracy
+          // Fallback recorded date using lastModified
+          const fallback = f.lastModified ? new Date(f.lastModified) : null;
+
+          // No embedded-time parsing — we only display the file's lastModified (labeled as Time Uploaded)
+
+      wrapper.innerHTML = `
             <div class="flex items-center justify-between">
-              <div class="text-sm font-medium text-gray-800">File ${i+1}: ${escapeHtml(f.name)}</div>
+              <div>
+                <div class="text-sm font-medium text-gray-800">Shot ${i+1}: ${escapeHtml(f.name)}</div>
+        <div class="text-xs text-gray-500 mt-1 file-mtime">Time Uploaded: ${fallback ? fallback.toLocaleString() : 'Unknown'}</div>
+              </div>
               <div class="text-xs text-gray-500">${(f.size/(1024*1024)).toFixed(2)} MB</div>
             </div>
             <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Club</label>
                 <select name="club_${i}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
-                  <option value="">Use form club</option>
+                  <option value="">Select club</option>
                   <option value="Driver">Driver</option>
                   <option value="3-wood">3-wood</option>
                   <option value="5-wood">5-wood</option>
@@ -233,8 +244,11 @@
                 <input type="number" step="0.1" name="distance_${i}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" placeholder="e.g. 120" />
               </div>
             </div>
+            <input type="hidden" name="upload_time_${i}" value="${new Date().toISOString()}" />
           `;
           metaContainer.appendChild(wrapper);
+
+          // nothing async to update; file lastModified was set at panel render time
         });
       } else {
         fileInfo.classList.add('hidden');
@@ -255,6 +269,73 @@
         submitBtn.classList.add('bg-gray-400');
         progressDiv.classList.remove('hidden');
       });
+
+      // Selected round display logic
+      const roundSelect = document.querySelector('select[name="round_id"]');
+      const newRoundName = document.querySelector('input[name="new_round_name"]');
+      const newRoundPlayedAt = document.querySelector('input[name="new_round_played_at"]');
+      const selectedDisplay = document.getElementById('selected-round-display');
+
+      function refreshSelectedRound() {
+        let text = '';
+        if (roundSelect && roundSelect.value) {
+          const opt = roundSelect.options[roundSelect.selectedIndex];
+          text = `Selected round: ${opt.text}`;
+        } else if (newRoundName && newRoundName.value) {
+          text = `New round: ${newRoundName.value}`;
+          if (newRoundPlayedAt && newRoundPlayedAt.value) {
+            // show date part only
+            const d = new Date(newRoundPlayedAt.value);
+            if (!isNaN(d.getTime())) text += ` — ${d.toLocaleDateString()}`;
+          }
+        }
+        if (text) {
+          selectedDisplay.textContent = text;
+          selectedDisplay.classList.remove('hidden');
+        } else {
+          selectedDisplay.textContent = '';
+          selectedDisplay.classList.add('hidden');
+        }
+      }
+
+      if (roundSelect) {
+        roundSelect.addEventListener('change', refreshSelectedRound);
+        roundSelect.addEventListener('change', function() {
+          // Autofill only the course when a round is selected.
+          // Leave the hole input untouched so user chooses it explicitly.
+          const opt = roundSelect.options[roundSelect.selectedIndex];
+          if (opt && opt.dataset) {
+            const courseVal = opt.dataset.course || '';
+            const courseInput = document.querySelector('input[name="course"]');
+            if (courseInput && courseVal) courseInput.value = courseVal;
+          }
+        });
+      }
+      if (newRoundName) newRoundName.addEventListener('input', refreshSelectedRound);
+      if (newRoundPlayedAt) newRoundPlayedAt.addEventListener('change', refreshSelectedRound);
+      // initialize
+      refreshSelectedRound();
+
+        // Prefill from URL params (so round/hole links can preselect on navigation)
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const rid = params.get('round_id');
+          const holeParam = params.get('hole');
+          if (rid && roundSelect) {
+            for (let i=0;i<roundSelect.options.length;i++){
+              if (roundSelect.options[i].value === rid) { roundSelect.selectedIndex = i; break; }
+            }
+          }
+          if (holeParam) {
+            const holeInput = document.querySelector('input[name="hole"]');
+            if (holeInput) holeInput.value = holeParam;
+          }
+          refreshSelectedRound();
+        } catch (e) {
+          // ignore URL parse errors
+        }
+
+  // No modal button for creating rounds — inline inputs are used instead
     });
 
     // Course name autocomplete + confirm modal

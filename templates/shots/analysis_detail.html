@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load shot_extras %}
 
 {% block content %}
   <div class="max-w-6xl mx-auto">
@@ -31,6 +32,12 @@
           <p class="text-lg font-medium">#{{ analysis.stroke_number }}</p>
         </div>
         {% endif %}
+        {% if analysis.round %}
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Round</p>
+          <p class="text-lg font-medium">{{ analysis.round.name|default:'Round' }}{% if analysis.round.played_at %} — {{ analysis.round.played_at|date:"M d, Y" }}{% endif %}</p>
+        </div>
+        {% endif %}
         <div class="bg-gray-50 p-4 rounded-lg">
           <p class="text-gray-600 text-sm">Club</p>
           <p class="text-lg font-medium">⛳ {{ analysis.club }}</p>
@@ -50,6 +57,19 @@
         <div class="bg-gray-50 p-4 rounded-lg">
           <p class="text-gray-600 text-sm">Uploaded</p>
           <p class="text-lg font-medium">📅 {{ analysis.created_at|date:"M d, Y g:i A" }}</p>
+          {% if analysis.probe_creation_time %}
+            <p class="text-sm text-gray-600 mt-1">🛰️ ffprobe creation_time: {{ analysis.probe_creation_time|date:"M d, Y g:i A" }}</p>
+          {% endif %}
+          {% if analysis.client_added_time %}
+            <p class="text-sm text-gray-600 mt-1">📥 Client selected at: {{ analysis.client_added_time|date:"M d, Y g:i A" }}</p>
+          {% endif %}
+          {% if analysis.input_video and analysis.input_video.path %}
+            {% with mtime=analysis.input_video.path|file_mtime %}
+              {% if mtime %}
+                <p class="text-sm text-gray-600 mt-1">🗄️ Server file mtime: {{ mtime|date:"M d, Y g:i A" }}</p>
+              {% endif %}
+            {% endwith %}
+          {% endif %}
         </div>
       </div>
     </div>

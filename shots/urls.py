@@ -21,4 +21,10 @@ urlpatterns = [
     path('courses/', views.courses_list, name='courses_list'),
     path('courses/<slug:course_slug>/', views.course_holes, name='course_holes'),
     path('courses/<slug:course_slug>/hole/<int:hole>/', views.hole_shots, name='hole_shots'),
+    # Rounds grouping
+    path('rounds/', views.rounds_list, name='rounds_list'),
+    path('rounds/<slug:course_slug>/', views.rounds_list, name='rounds_list_for_course'),
+    path('round/<int:round_pk>/holes/', views.round_holes, name='round_holes'),
+    path('round/<int:round_pk>/hole/<int:hole>/shots/', views.round_hole_shots, name='round_hole_shots'),
+    path('round/<int:round_pk>/delete/', views.delete_round, name='delete_round'),
 ]

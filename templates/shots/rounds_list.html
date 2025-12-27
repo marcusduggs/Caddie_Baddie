@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-7xl mx-auto p-4">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-semibold">My Rounds</h2>
+      <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Upload Video</a>
+    </div>
+
+    {% if rounds %}
+      <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {% for r in rounds %}
+          <div class="bg-white rounded-lg shadow p-4">
+            <h3 class="text-lg font-medium">{{ r.name|default:'Round' }}</h3>
+            {% if r.played_at %}
+              <p class="text-sm text-gray-500">{{ r.played_at|date:'M d, Y' }}</p>
+            {% else %}
+              <p class="text-sm text-gray-500">&nbsp;</p>
+            {% endif %}
+            <div class="mt-3">
+              <a href="{% url 'shots:round_holes' r.pk %}" class="text-sm text-blue-600 hover:underline">View holes</a>
+              <form method="post" action="{% url 'shots:delete_round' r.pk %}" class="inline-block ml-4" onsubmit="return confirmDeleteRound(this)">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-red-600 hover:underline">Delete</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No rounds found. Create a round when uploading a shot.</p>
+    {% endif %}
+  </div>
+{% endblock %}
+
+<script>
+  function confirmDeleteRound(formEl) {
+    // Show a clear warning that deletion cannot be undone
+    const msg = 'Warning: Deleting a round will permanently remove the round, all holes, and all associated shots and media files. This action cannot be undone.\n\nDo you want to continue?';
+    return window.confirm(msg);
+  }
+</script>

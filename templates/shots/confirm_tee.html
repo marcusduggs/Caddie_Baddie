@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-xl mx-auto p-6 bg-white rounded shadow">
+    <h2 class="text-xl font-semibold mb-4">Confirm Tee Selection</h2>
+    <p class="mb-4">You selected <strong>{{ selected_tee }}</strong> for {{ course }} hole {{ hole }}.</p>
+    {% if api_tees %}
+      <p class="mb-2 text-sm text-gray-700">Available tees found in course data:</p>
+      <ul class="mb-4 list-disc pl-6 text-sm">
+        {% for t in api_tees %}
+          <li>{{ t }}</li>
+        {% endfor %}
+      </ul>
+      <p class="mb-4 text-sm text-gray-600">Choose which tee to apply for processing. If your selected tee is not listed, pick the closest option or leave blank to use the default match.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="course" value="{{ course }}" />
+        <input type="hidden" name="hole" value="{{ hole }}" />
+        <input type="hidden" name="selected_tee" value="{{ selected_tee }}" />
+        <input type="hidden" name="analysis_pks" value="{{ analysis_pks }}" />
+        <input type="hidden" name="api_tees" value="{{ api_tees|join:'|' }}" />
+
+        <label class="block text-sm mb-2">Use this tee for processing</label>
+        <select name="final_tee" class="block w-full p-2 border rounded mb-4">
+          <option value="">(Use default match)</option>
+          {% for t in api_tees %}
+            <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+
+        <div class="flex gap-3">
+          <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded">Continue</button>
+          <a href="{% url 'shots:shot_list' %}" class="text-gray-600 px-4 py-2 rounded border">Cancel</a>
+        </div>
+      </form>
+    {% else %}
+      <p class="text-sm text-red-600 mb-4">No matching tees were found in the course API for your selected tee. The system will use the default tee match.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="analysis_pks" value="{{ analysis_pks }}" />
+        <button type="submit" name="final_tee" value="" class="bg-green-600 text-white px-4 py-2 rounded">Proceed with default tee</button>
+        <a href="{% url 'shots:shot_list' %}" class="text-gray-600 px-4 py-2 rounded border ml-2">Cancel</a>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}
