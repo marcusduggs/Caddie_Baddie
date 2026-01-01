@@ -4,7 +4,14 @@
   <div class="max-w-7xl mx-auto p-4">
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-semibold">My Rounds</h2>
-      <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Upload Video</a>
+      <div class="flex items-center gap-3">
+        <a href="{% url 'shots:courses_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Go Back to Courses</a>
+  {% if fixed_course_name %}
+    <a href="{% url 'shots:analyze_upload' %}?course={{ fixed_course_name|urlencode }}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add New Hole</a>
+  {% else %}
+    <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add New Hole</a>
+  {% endif %}
+      </div>
     </div>
 
     {% if rounds %}

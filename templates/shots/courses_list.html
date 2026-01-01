@@ -1,21 +1,79 @@
 {% extends 'base.html' %}
+{% load helpers %}
 
 {% block content %}
   <div class="max-w-7xl mx-auto p-4">
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-semibold">My Courses</h2>
-  <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add Course</a>
+      <div class="flex items-center gap-4">
+        {% if user_rounds %}
+          <div class="flex items-center gap-2">
+            <select id="quick-round" class="border rounded p-2 text-sm">
+              <option value="">Quick add to a round...</option>
+              {% for r in user_rounds %}
+                <option data-course-pk="{{ r.course_pk }}" value="{{ r.round_pk }}">{{ r.round_name }} — {{ r.played_at|date:'Y-m-d' }} — {{ r.course_name }}</option>
+              {% endfor %}
+            </select>
+            <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Round</button>
+          </div>
+        {% elif courses %}
+          <div class="flex items-center gap-2">
+            <select id="quick-course" class="border rounded p-2 text-sm">
+              <option value="">Quick add round to...</option>
+              {% for c in courses %}
+                <option value="{{ c.pk|default:'' }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Round</button>
+          </div>
+        {% endif %}
+      </div>
     </div>
 
     {% if courses %}
       <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {% for c in courses %}
           <div class="bg-white rounded-lg shadow p-4">
-            <h3 class="text-lg font-medium">{{ c.name }}</h3>
-            <p class="text-sm text-gray-500">{{ c.count }} shots</p>
-            <div class="mt-3 flex items-center gap-4">
-              <a href="{% url 'shots:course_holes' c.slug %}" class="text-sm text-blue-600 hover:underline">View holes</a>
-              <a href="{% url 'shots:rounds_list_for_course' c.slug %}" class="text-sm text-gray-600 hover:underline">View rounds</a>
+            <div>
+              <h3 class="text-lg font-medium">{{ c.name }}</h3>
+              <p class="text-sm text-gray-500">{{ c.count }} shots</p>
+
+              <div class="mt-3 flex items-center gap-2">
+                <a href="{% url 'shots:rounds_list_for_course' c.slug %}" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">View Rounds</a>
+                {% if c.pk %}
+                  <a href="{% url 'shots:add_round' c.pk %}" class="ml-2 bg-green-600 text-white px-3 py-1 rounded text-sm">Add Round</a>
+                {% else %}
+                  <a href="{% url 'shots:analyze_upload' %}?course={{ c.name|urlencode }}" class="ml-2 bg-green-600 text-white px-3 py-1 rounded text-sm">Add Round</a>
+                {% endif %}
+                <form method="post" action="{% url 'shots:delete_course' c.pk %}" onsubmit="return confirm('Delete this course and all its rounds and shots? This cannot be undone.');">
+                  {% csrf_token %}
+                  <button type="submit" class="ml-2 bg-red-600 text-white px-3 py-1 rounded text-sm">Delete Course</button>
+                </form>
+              </div>
+            </div>
+
+            {% comment %} Show recent rounds and their hole counts inline {% endcomment %}
+            <div class="mt-3 space-y-2">
+              {% with course_rounds|get_item:c.pk as rounds_for_course %}
+                {% if rounds_for_course %}
+                  <div class="text-sm text-gray-700">Recent rounds:</div>
+                  <ul class="mt-1 space-y-1">
+                    {% for r in rounds_for_course %}
+                      <li class="flex items-center justify-between">
+                        <div>
+                          <strong>{{ r.name }}</strong>
+                          {% if r.played_at %}<span class="text-xs text-gray-500"> — {{ r.played_at|date:'Y-m-d' }}</span>{% endif %}
+                        </div>
+                        <div class="text-sm">
+                          <a href="{% url 'shots:round_holes' r.pk %}" class="text-blue-600 hover:underline">View holes</a>
+                        </div>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <div class="text-sm text-gray-500">No rounds yet for this course.</div>
+                {% endif %}
+              {% endwith %}
             </div>
           </div>
         {% endfor %}
@@ -24,4 +82,29 @@
       <p>No courses found. Upload a shot and set a course name when uploading.</p>
     {% endif %}
   </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const btn = document.getElementById('quick-add-btn');
+      const quickRound = document.getElementById('quick-round');
+      const quickCourse = document.getElementById('quick-course');
+      if (btn) {
+        btn.addEventListener('click', function() {
+          if (quickRound && quickRound.value) {
+            const roundPk = quickRound.value;
+            const selectedOpt = quickRound.options[quickRound.selectedIndex];
+            const coursePk = selectedOpt ? selectedOpt.dataset.coursePk : null;
+            if (!coursePk) return alert('Course not available for selected round');
+            window.location.href = `/courses/${coursePk}/add-round/?round_id=${roundPk}`;
+            return;
+          }
+          if (quickCourse && quickCourse.value) {
+            const val = quickCourse.value;
+            window.location.href = `/courses/${val}/add-round/`;
+            return;
+          }
+          return alert('Please select a course or round');
+        });
+      }
+    });
+  </script>
 {% endblock %}

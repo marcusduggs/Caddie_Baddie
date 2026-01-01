@@ -24,7 +24,7 @@
       </div>
       <div class="flex items-center gap-3">
         <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to courses</a>
-        <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-5 py-2 rounded-md shadow hover:bg-blue-700">Upload Video</a>
+  <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-5 py-2 rounded-md shadow hover:bg-blue-700">Add New Hole</a>
       </div>
     </div>
 
@@ -57,6 +57,7 @@
               <a href="{% url 'shots:analysis_detail' a.pk %}" class="text-sm text-blue-600 font-medium hover:underline">View details</a>
               <form method="post" action="{% url 'shots:delete_shot' a.pk %}" onsubmit="return confirm('Delete this shot? This cannot be undone.');">
                 {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}" />
                 <button type="submit" class="text-sm bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700">Delete</button>
               </form>
             </div>
@@ -67,4 +68,22 @@
       <p>No shots found for this course and hole.</p>
     {% endif %}
   </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script>
+    // Ensure delete forms include a 'next' param pointing to the current page
+    document.addEventListener('DOMContentLoaded', function() {
+      const current = window.location.pathname + window.location.search;
+      document.querySelectorAll('form[action*="/shots/"][method="post"]').forEach(form => {
+        if (form.querySelector('input[name="next"]')) {
+          form.querySelector('input[name="next"]').value = current;
+        } else {
+          const inp = document.createElement('input');
+          inp.type = 'hidden'; inp.name = 'next'; inp.value = current;
+          form.appendChild(inp);
+        }
+      });
+    });
+  </script>
 {% endblock %}

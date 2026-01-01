@@ -2,7 +2,12 @@
 
 {% block content %}
   <div class="max-w-2xl mx-auto">
-    <h2 class="text-3xl font-bold mb-6">📹 Upload Swing Video</h2>
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-3xl font-bold">📹 Upload Swing Video</h2>
+      <div>
+        <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 px-3 py-1 rounded">📚 View Courses</a>
+      </div>
+    </div>
     
     {% if messages %}
       {% for message in messages %}
@@ -12,29 +17,59 @@
       {% endfor %}
     {% endif %}
 
+    {# Server-side debug info when form re-rendered after POST #}
+    {% if form_errors %}
+      <div class="mb-4 p-4 rounded-lg bg-yellow-50 text-yellow-800">
+        <strong>Server-side form errors:</strong>
+        <div class="mt-2 text-sm">{{ form_errors }}</div>
+      </div>
+    {% endif %}
+
+    {% if posted_keys %}
+      <div class="mb-4 p-2 rounded bg-gray-50 text-gray-700 text-xs">
+        <strong>Posted keys:</strong>
+        <div class="mt-1">{{ posted_keys }}</div>
+      </div>
+    {% endif %}
+
   <!-- Debug UI removed -->
     
-    <!-- Upload Form -->
-    <form method="post" enctype="multipart/form-data" class="bg-white shadow-md rounded-lg p-6 mb-6">
+  <!-- Upload Form -->
+  <form method="post" action="{% url 'shots:analyze_upload' %}" enctype="multipart/form-data" class="bg-white shadow-md rounded-lg p-6 mb-6">
       {% csrf_token %}
 
-      <!-- Round selection / new round creation -->
+  <!-- Round selection / new round creation -->
       <div class="max-w-2xl mx-auto mb-4">
-        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 Round (optional)</label>
-        <select name="round_id" id="round-select" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2 mb-2">
-          <option value="">Choose existing round</option>
-          {% for r in rounds %}
-            <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}">{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
-          {% empty %}
-            <!-- no existing rounds -->
-          {% endfor %}
-        </select>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <input type="text" name="new_round_name" placeholder="New round name (optional)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
-          <input type="datetime-local" name="new_round_played_at" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 {% if fixed_course %}Round{% else %}Round (optional){% endif %}</label>
+
+        <!-- Mode toggle buttons -->
+        <div id="round-mode-toggle" class="mb-3 flex gap-2">
+          <button type="button" id="btn-existing-round" aria-pressed="true" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-green-600 text-white text-sm">Choose existing round</button>
+          <button type="button" id="btn-new-round" aria-pressed="false" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-white text-gray-700 text-sm" {% if fixed_course %}disabled aria-disabled="true" title="Create new round disabled when uploading to a locked course"{% endif %}>Create new round</button>
         </div>
+
+        <!-- Existing round selector (default visible) -->
+        <div id="existing-round-mode">
+          <select name="round_id" id="round-select" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2 mb-2">
+            <option value="">Choose existing round</option>
+            {% for r in rounds %}
+              <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}" {% if selected_round_id and selected_round_id|stringformat:'s' == r.pk|stringformat:'s' %}selected{% endif %}>{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
+            {% empty %}
+              <!-- no existing rounds -->
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- New round inputs (hidden by default) -->
+        <div id="new-round-mode" class="hidden">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input type="text" name="new_round_name" id="new-round-name" placeholder="{% if fixed_course %}New round name{% else %}New round name (optional){% endif %}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+            <input type="date" name="new_round_played_at" id="new-round-played-at" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+          </div>
+        </div>
+
         <p class="mt-1 text-sm text-gray-500">Optional — attach uploads to an existing round or create a new one.</p>
-  <div class="mt-2 text-sm text-gray-600">Pick an existing round from the menu or enter a new round name and date inline.</div>
+        <div class="mt-2 text-sm text-gray-600">Pick an existing round from the menu or use <strong>Create new round</strong> to start a fresh round.</div>
         <div id="selected-round-display" class="mt-2 text-sm text-gray-700 hidden"></div>
       </div>
       
@@ -43,19 +78,33 @@
         
         <!-- Course name (optional) -->
         <div>
-          <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
-            🏟️ Course (optional)
-          </label>
-          <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
-          <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
-          <div id="course-suggestions" class="mt-1 relative"></div>
-          <p class="mt-1 text-sm text-gray-500">Optional — provide a course name to overlay the course and hole yardage.</p>
+          {% if fixed_course %}
+            {# If we have a Course object, use its name; otherwise use fixed_course_name #}
+            <input type="hidden" name="course" id="hidden-fixed-course" value="{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}" />
+            <div class="mb-1 text-sm text-gray-700">🏟️ Uploading for course: <strong>{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}</strong></div>
+            {# Visual locked badge with unlock action #}
+            <div id="course-locked-badge" class="inline-flex items-center gap-3 mt-2 px-3 py-1 rounded bg-yellow-50 text-yellow-800 text-sm">
+              <span>🔒 Locked to course:</span>
+              <strong id="badge-course-name">{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}</strong>
+              <button type="button" id="unlock-course-btn" class="ml-3 text-xs underline">Unlock</button>
+            </div>
+            {# Hide the editable course input and suggestions via inline CSS to ensure it's not editable #}
+            <style>#id_course, #course-suggestions, #id_suggested_course_id { display: none !important; }</style>
+          {% else %}
+            <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
+              🏟️ Course (optional)
+            </label>
+            <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" value="{% if initial_course %}{{ initial_course|escape }}{% endif %}" />
+            <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
+            <div id="course-suggestions" class="mt-1 relative"></div>
+            <p class="mt-1 text-sm text-gray-500">Optional — provide a course name to overlay the course and hole yardage.</p>
+          {% endif %}
         </div>
 
         <!-- Hole number (optional) -->
         <div>
           <label for="id_hole" class="block text-sm font-medium text-gray-700 mb-2">
-            ⛳ Hole (optional)
+            ⛳ {% if fixed_course %}Hole{% else %}Hole (optional){% endif %}
           </label>
           <input type="number" name="hole" id="id_hole" min="1" max="18" placeholder="Hole number (1-18)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
         </div>
@@ -63,18 +112,23 @@
         <!-- Tee selection (optional) -->
         <div>
           <label for="id_selected_tee" class="block text-sm font-medium text-gray-700 mb-2">
-            🏷️ Preferred Tee (optional)
+            🏷️ {% if fixed_course %}Preferred Tee{% else %}Preferred Tee (optional){% endif %}
           </label>
           <select name="selected_tee" id="id_selected_tee" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
-            <option value="">Any</option>
-            <option value="Blue">Blue</option>
-            <option value="White">White</option>
-            <option value="Gold">Gold</option>
-            <option value="Gold Combo">Gold Combo</option>
-            <option value="Red">Red</option>
-            <option value="Green">Green</option>
-            <option value="Black">Black</option>
+                <option value="">Any</option>
+                <!-- Server-side prefetched tee options (fallback) -->
+                {% if prefetched_tee_names %}
+                  {% for tn in prefetched_tee_names %}
+                    <option value="{{ tn|escape }}">{{ tn }}</option>
+                  {% endfor %}
+                {% endif %}
           </select>
+            <div class="mt-2 flex items-center gap-3">
+              <p id="tee-status" class="text-sm text-gray-500">Tee options not loaded.</p>
+              <button type="button" id="reload-tees-btn" class="px-2 py-1 text-xs rounded border bg-gray-50">Load tees</button>
+              <button type="button" id="toggle-teepayload-btn" class="px-2 py-1 text-xs rounded border bg-gray-50">Show payload</button>
+            </div>
+            <pre id="tee-payload-debug" class="mt-2 p-2 bg-black text-white text-xs overflow-auto hidden" style="max-height:200px;"></pre>
           <p class="mt-1 text-sm text-gray-500">Optional — pick a tee set to prefer its yardages (if available in the API).</p>
         </div>
         
@@ -139,9 +193,10 @@
     
     <!-- Navigation -->
     <div class="mt-6 text-center">
-      <a href="{% url 'shots:shot_list' %}" class="text-blue-600 hover:text-blue-800 font-medium">
-        ← Back to All Shots
-      </a>
+      <div class="flex items-center justify-center gap-6">
+        <a href="{% url 'shots:shot_list' %}" class="text-blue-600 hover:text-blue-800 font-medium">← Back to All Shots</a>
+        <a href="{% url 'shots:courses_list' %}" class="text-blue-600 hover:text-blue-800 font-medium">🏟️ View Courses</a>
+      </div>
     </div>
   </div>
   
@@ -176,9 +231,19 @@
     input[type="file"]::file-selector-button:hover {
       background-color: #059669;
     }
+    /* Toggle buttons for round mode */
+    .toggle-btn {
+      cursor: pointer;
+    }
+    .toggle-btn[aria-pressed="true"] {
+      box-shadow: 0 2px 6px rgba(16,185,129,0.15);
+    }
   </style>
   
   <script>
+  // If this page was rendered for a fixed course, prevent JS from overwriting it
+  window.FIXED_COURSE = "{{ fixed_course|default:False|yesno:'true,false' }}" === 'true';
+  window.FIXED_COURSE_NAME = "{{ fixed_course_obj.name|default:''|escapejs }}";
     // Small global helper to escape HTML when rendering filenames in innerHTML
     function escapeHtml(s) {
       return (s || '').replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]; });
@@ -199,8 +264,15 @@
         }
         fileInfo.classList.remove('hidden');
 
-        // For each file, render club and distance inputs named club_0, distance_0, etc.
-        files.forEach((f, i) => {
+        // Sort files by lastModified (capture time) ascending so earliest appears first as Shot 1
+        // Keep originalIndex to preserve server-side mapping (club_0, distance_0 refer to original selection order)
+        const filesWithIndex = files.map((f, i) => ({ file: f, originalIndex: i, lastModified: f.lastModified || 0 }));
+        filesWithIndex.sort((a, b) => (a.lastModified - b.lastModified) || (a.originalIndex - b.originalIndex));
+
+        // For each file in sorted order, render club and distance inputs; name inputs using the ORIGINAL index
+        filesWithIndex.forEach((entry, displayIndex) => {
+          const f = entry.file;
+          const i = entry.originalIndex;
           const wrapper = document.createElement('div');
           wrapper.className = 'bg-gray-50 p-3 rounded border border-gray-200';
           // We'll attempt to extract creation_time from MP4/QuickTime atoms for greater accuracy
@@ -208,11 +280,10 @@
           const fallback = f.lastModified ? new Date(f.lastModified) : null;
 
           // No embedded-time parsing — we only display the file's lastModified (labeled as Time Uploaded)
-
-      wrapper.innerHTML = `
+          wrapper.innerHTML = `
             <div class="flex items-center justify-between">
               <div>
-                <div class="text-sm font-medium text-gray-800">Shot ${i+1}: ${escapeHtml(f.name)}</div>
+                <div class="text-sm font-medium text-gray-800">Shot ${displayIndex+1}: ${escapeHtml(f.name)}</div>
         <div class="text-xs text-gray-500 mt-1 file-mtime">Time Uploaded: ${fallback ? fallback.toLocaleString() : 'Unknown'}</div>
               </div>
               <div class="text-xs text-gray-500">${(f.size/(1024*1024)).toFixed(2)} MB</div>
@@ -262,6 +333,46 @@
       const progressDiv = document.getElementById('upload-progress');
       
       form.addEventListener('submit', function(e) {
+        // Client-side validation: ensure each selected file has club and distance filled
+        const metaContainer = document.getElementById('per-file-meta');
+        const panels = metaContainer.querySelectorAll('[name^="club_"]');
+        // Build a list of original indices by scanning club selects
+        let missing = [];
+        // For each select element named club_{i}, check the paired distance_{i}
+        metaContainer.querySelectorAll('select[name^="club_"]').forEach(function(sel) {
+          const name = sel.getAttribute('name');
+          const idx = name.split('_')[1];
+          const distanceEl = metaContainer.querySelector(`input[name="distance_${idx}"]`);
+          const clubVal = (sel.value || '').trim();
+          const distVal = distanceEl ? (distanceEl.value || '').trim() : '';
+          if (!clubVal || !distVal) {
+            missing.push(idx);
+          }
+        });
+
+        if (missing.length > 0) {
+          e.preventDefault();
+          // show an inline alert above the submit button
+          let alert = document.getElementById('meta-warning');
+          if (!alert) {
+            alert = document.createElement('div');
+            alert.id = 'meta-warning';
+            alert.className = 'mt-4 bg-yellow-100 border border-yellow-300 text-yellow-800 px-4 py-3 rounded';
+            alert.setAttribute('role', 'alert');
+            submitBtn.parentNode.insertBefore(alert, submitBtn.nextSibling);
+          }
+          alert.innerHTML = `<strong class="font-semibold">Missing information:</strong> Please select a club and enter a distance (yards) for each selected video before analyzing.`;
+          // restore submit button state
+          submitBtn.disabled = false;
+          submitBtn.textContent = '🚀 Analyze Shot';
+          submitBtn.classList.remove('bg-gray-400');
+          submitBtn.classList.add('bg-green-600');
+          progressDiv.classList.add('hidden');
+          // scroll into view so user notices
+          alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return false;
+        }
+
         // Show progress indicator
         submitBtn.disabled = true;
         submitBtn.textContent = '⏳ Uploading...';
@@ -284,9 +395,16 @@
         } else if (newRoundName && newRoundName.value) {
           text = `New round: ${newRoundName.value}`;
           if (newRoundPlayedAt && newRoundPlayedAt.value) {
-            // show date part only
-            const d = new Date(newRoundPlayedAt.value);
-            if (!isNaN(d.getTime())) text += ` — ${d.toLocaleDateString()}`;
+            // input is date-only (YYYY-MM-DD). Parse parts and display as locale date.
+            try {
+              const parts = newRoundPlayedAt.value.split('-');
+              if (parts.length === 3) {
+                const d = new Date(parts[0], parts[1]-1, parts[2]);
+                if (!isNaN(d.getTime())) text += ` — ${d.toLocaleDateString()}`;
+              }
+            } catch (e) {
+              // ignore parse errors
+            }
           }
         }
         if (text) {
@@ -295,6 +413,39 @@
         } else {
           selectedDisplay.textContent = '';
           selectedDisplay.classList.add('hidden');
+        }
+        // If the server passed a selected_round_id, ensure the display is visible
+        try {
+          const selRound = document.querySelector('#round-select');
+          if (selRound) {
+            const selectedOpt = selRound.options[selRound.selectedIndex];
+            if (selectedOpt && selectedOpt.value) {
+              selectedDisplay.classList.remove('hidden');
+            }
+          }
+        } catch (e) {}
+
+        // Unlock course action: allow user to override locked course when clicking Unlock
+        const unlockBtn = document.getElementById('unlock-course-btn');
+        if (unlockBtn) {
+          unlockBtn.addEventListener('click', function() {
+            if (!confirm('Unlock course field so you can change the course for this upload?')) return;
+            // remove hidden course input
+            const hidden = document.getElementById('hidden-fixed-course');
+            if (hidden && hidden.parentNode) hidden.parentNode.removeChild(hidden);
+            // show editable input and suggestions
+            try { document.getElementById('id_course').style.display = ''; } catch (e) {}
+            try { document.getElementById('course-suggestions').style.display = ''; } catch (e) {}
+            try { document.getElementById('id_suggested_course_id').style.display = ''; } catch (e) {}
+            // remove badge
+            const badge = document.getElementById('course-locked-badge');
+            if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+            // enable create new round button
+            const newRoundBtn = document.getElementById('btn-new-round');
+            if (newRoundBtn) { newRoundBtn.removeAttribute('disabled'); newRoundBtn.removeAttribute('aria-disabled'); }
+            // focus the course input
+            try { document.getElementById('id_course').focus(); } catch (e) {}
+          });
         }
       }
 
@@ -308,6 +459,10 @@
             const courseVal = opt.dataset.course || '';
             const courseInput = document.querySelector('input[name="course"]');
             if (courseInput && courseVal) courseInput.value = courseVal;
+            // Try to populate tee options for the autofilled course
+            try {
+              if (courseVal) fetchCourseAndPopulate(courseVal);
+            } catch (e) {}
           }
         });
       }
@@ -315,6 +470,66 @@
       if (newRoundPlayedAt) newRoundPlayedAt.addEventListener('change', refreshSelectedRound);
       // initialize
       refreshSelectedRound();
+
+      // Round mode toggler (existing vs new)
+      (function() {
+        const btnExisting = document.getElementById('btn-existing-round');
+        const btnNew = document.getElementById('btn-new-round');
+        const existingMode = document.getElementById('existing-round-mode');
+        const newMode = document.getElementById('new-round-mode');
+        const roundSelectEl = document.getElementById('round-select');
+        const newNameEl = document.getElementById('new-round-name');
+        const newPlayedAtEl = document.getElementById('new-round-played-at');
+
+        function showExisting() {
+          existingMode.classList.remove('hidden');
+          newMode.classList.add('hidden');
+          // Active button styling
+          btnExisting.classList.add('bg-green-600', 'text-white');
+          btnExisting.classList.remove('bg-white', 'text-gray-700');
+          btnExisting.setAttribute('aria-pressed', 'true');
+          // Inactive button styling
+          btnNew.classList.remove('bg-green-600', 'text-white');
+          btnNew.classList.add('bg-white', 'text-gray-700');
+          btnNew.setAttribute('aria-pressed', 'false');
+          // clear new round inputs so backend won't create if they were previously filled
+          if (newNameEl) newNameEl.value = '';
+          if (newPlayedAtEl) newPlayedAtEl.value = '';
+        }
+
+        function showNew() {
+          existingMode.classList.add('hidden');
+          newMode.classList.remove('hidden');
+          // Active new button styling
+          btnNew.classList.add('bg-green-600', 'text-white');
+          btnNew.classList.remove('bg-white', 'text-gray-700');
+          btnNew.setAttribute('aria-pressed', 'true');
+          // Inactive existing button styling
+          btnExisting.classList.remove('bg-green-600', 'text-white');
+          btnExisting.classList.add('bg-white', 'text-gray-700');
+          btnExisting.setAttribute('aria-pressed', 'false');
+          // clear existing round selection so backend won't pick it
+          if (roundSelectEl) roundSelectEl.selectedIndex = 0;
+        }
+
+        if (btnExisting && btnNew) {
+          btnExisting.addEventListener('click', showExisting);
+          btnNew.addEventListener('click', showNew);
+        }
+
+        // If URL provided a selected round, default to existing mode and preselect it
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const selRid = params.get('round_id');
+          if (selRid && roundSelectEl) {
+            for (let i=0;i<roundSelectEl.options.length;i++){
+              if (roundSelectEl.options[i].value === selRid) { roundSelectEl.selectedIndex = i; break; }
+            }
+            showExisting();
+            refreshSelectedRound();
+          }
+        } catch (e) {}
+      })();
 
         // Prefill from URL params (so round/hole links can preselect on navigation)
         try {
@@ -392,6 +607,17 @@
         input.value = item.name;
         hiddenId.value = item.id || '';
         clearSuggestions();
+        // After applying suggestion, try to populate tee options from the API raw payload if available
+        try {
+          if (item.raw) {
+            populateTeeOptionsFromPayload(item.raw);
+          } else if (item.id) {
+            // fetch full course JSON by name
+            fetchCourseAndPopulate(item.name);
+          }
+        } catch (e) {
+          // ignore failures
+        }
       }
 
       async function fetchSuggestions(q) {
@@ -408,6 +634,156 @@
         }
       }
 
+    // Fetch full course JSON using the golf_course_search endpoint and populate tee options
+    async function fetchCourseAndPopulate(courseName) {
+      try {
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Loading tee options...';
+        const url = new URL(window.location.origin + '{% url "shots:api_golf_course" %}');
+        url.searchParams.set('course', courseName);
+        console.info('fetchCourseAndPopulate: fetching', url.toString());
+        const res = await fetch(url.toString(), { method: 'GET' });
+        if (!res.ok) {
+          console.warn('fetchCourseAndPopulate: non-OK response', res.status);
+          if (status) status.textContent = 'Failed to load tees (network).';
+          return;
+        }
+        const payload = await res.json();
+        // payload is {data: ...} per the API wrapper
+  const data = payload.data || payload;
+  // Expose the full payload to the debug pane for troubleshooting
+  try { if (window.__setTeePayloadDebug) window.__setTeePayloadDebug(payload); } catch(e){}
+  populateTeeOptionsFromPayload(data);
+        if (status) status.textContent = 'Tee options loaded.';
+      } catch (e) {
+        console.error('fetchCourseAndPopulate error', e);
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Failed to load tees.';
+      }
+    }
+
+    function populateTeeOptionsFromPayload(payload) {
+      try {
+        const teeSelect = document.getElementById('id_selected_tee');
+        if (!teeSelect) return;
+        // Collect tee names from payload. The payload may have a nested 'tees' structure.
+        const teeNames = new Set();
+        // Fast-path: handle payload shaped like { courses: [ { tees: { female: [...], male: [...] } } ] }
+        try {
+          if (payload && Array.isArray(payload.courses)) {
+            payload.courses.forEach(function(course) {
+              try {
+                if (course && course.tees && typeof course.tees === 'object') {
+                  Object.values(course.tees).forEach(function(teeList) {
+                    if (Array.isArray(teeList)) {
+                      teeList.forEach(function(tobj) {
+                        try {
+                          if (!tobj) return;
+                          if (tobj.tee_name) teeNames.add(tobj.tee_name);
+                          else if (tobj.teeName) teeNames.add(tobj.teeName);
+                          else if (tobj.name) teeNames.add(tobj.name);
+                        } catch (e) {}
+                      });
+                    }
+                  });
+                }
+              } catch (e) {}
+            });
+          }
+        } catch (e) {}
+        function collect(obj) {
+          if (!obj) return;
+          if (Array.isArray(obj)) {
+            obj.forEach(collect);
+            return;
+          }
+          if (typeof obj === 'object') {
+            // Direct well-known keys
+            if (obj.tee_name) teeNames.add(obj.tee_name);
+            if (obj.teeName) teeNames.add(obj.teeName);
+            if (obj.name && typeof obj.name === 'string' && obj.name.length < 60) {
+              // some APIs use 'name' on tee objects
+              teeNames.add(obj.name);
+            }
+            if (obj.title && typeof obj.title === 'string' && obj.title.length < 60) teeNames.add(obj.title);
+            if (obj.label && typeof obj.label === 'string' && obj.label.length < 60) teeNames.add(obj.label);
+
+            // Heuristic: scan string-valued fields whose key looks like it could be a tee label
+            for (const k of Object.keys(obj)) {
+              const v = obj[k];
+              if (typeof v === 'string' && /tee|name|label/i.test(k) && v.length < 80) {
+                teeNames.add(v);
+              }
+            }
+
+            // Recurse into common container shapes
+            for (const k of Object.keys(obj)) {
+              try {
+                const val = obj[k];
+                if (k === 'tees' && typeof val === 'object') {
+                  if (Array.isArray(val)) collect(val);
+                  else if (typeof val === 'object') Object.values(val).forEach(collect);
+                  continue;
+                }
+                if (Array.isArray(val)) collect(val);
+                else if (typeof val === 'object') collect(val);
+              } catch (e) {}
+            }
+          }
+        }
+        collect(payload);
+        // If no tees found, try to inspect top-level 'tees' or 'data.courses' shapes
+        if (teeNames.size === 0) {
+          try {
+            if (payload.courses && Array.isArray(payload.courses)) {
+              payload.courses.forEach(c => collect(c));
+            } else if (payload.data && payload.data.courses && Array.isArray(payload.data.courses)) {
+              payload.data.courses.forEach(c => collect(c));
+            }
+          } catch (e) {}
+        }
+
+        // If still empty, provide a short debug summary of top-level keys to the debug pane
+        if (teeNames.size === 0) {
+          try {
+            const topKeys = Object.keys(payload || {}).slice(0,20);
+            if (window.__setTeePayloadDebug) window.__setTeePayloadDebug({top_keys: topKeys, sample: payload});
+          } catch (e) {}
+        }
+        // Build options preserving an 'Any' first option only if we found tees.
+        const oldVal = teeSelect.value;
+        if (teeNames.size > 0) {
+          teeSelect.innerHTML = '';
+          const optAny = document.createElement('option');
+          optAny.value = '';
+          optAny.textContent = 'Any';
+          teeSelect.appendChild(optAny);
+          Array.from(teeNames).sort().forEach(name => {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = name;
+            teeSelect.appendChild(o);
+          });
+          // Restore previous value if still present
+          try { teeSelect.value = oldVal; } catch(e){}
+          console.info('populateTeeOptionsFromPayload: found tees', Array.from(teeNames));
+          const status = document.getElementById('tee-status');
+          if (status) {
+            status.textContent = `${teeNames.size} tee(s) available`;
+          }
+        } else {
+          // Do not remove any server-rendered options; notify user we found no tees
+          console.info('populateTeeOptionsFromPayload: no tees found in payload, keeping existing options');
+          const status = document.getElementById('tee-status');
+          if (status) status.textContent = 'No tees found in API response (kept existing options).';
+        }
+      } catch (e) {
+        console.error('populateTeeOptionsFromPayload error', e);
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Error parsing tee data.';
+      }
+    }
+
       const debounced = debounce(async function(ev) {
         const q = input.value && input.value.trim();
         if (!q || q.length < 2) { clearSuggestions(); return; }
@@ -416,11 +792,54 @@
       }, 280);
 
       input.addEventListener('input', debounced);
+      // Also try populating tees when the user leaves the course input (blur)
+      input.addEventListener('blur', function() {
+        try {
+          const q = input.value && input.value.trim();
+          if (q && q.length > 2) fetchCourseAndPopulate(q);
+        } catch (e) {}
+      });
       document.addEventListener('click', function(ev) {
         if (!suggestionsContainer.contains(ev.target) && ev.target !== input) {
           clearSuggestions();
         }
       });
+
+      // If page provided a fixed course name, populate tees immediately
+      try {
+        if (window.FIXED_COURSE && window.FIXED_COURSE_NAME) {
+          const ci = document.getElementById('id_course');
+          if (ci) ci.value = window.FIXED_COURSE_NAME;
+          fetchCourseAndPopulate(window.FIXED_COURSE_NAME);
+        } else {
+          // If the course input already has a value (e.g., from URL), try to populate
+          const existing = input.value && input.value.trim();
+          if (existing && existing.length > 2) fetchCourseAndPopulate(existing);
+        }
+      } catch (e) {}
+
+      // Load tees button and payload debug toggler
+      try {
+        const reloadBtn = document.getElementById('reload-tees-btn');
+        const togglePayloadBtn = document.getElementById('toggle-teepayload-btn');
+        const payloadBox = document.getElementById('tee-payload-debug');
+        if (reloadBtn) reloadBtn.addEventListener('click', function() {
+          const q = input.value && input.value.trim();
+          if (!q) { alert('Enter a course name first'); return; }
+          fetchCourseAndPopulate(q);
+        });
+        if (togglePayloadBtn && payloadBox) togglePayloadBtn.addEventListener('click', function() {
+          if (payloadBox.classList.contains('hidden')) payloadBox.classList.remove('hidden');
+          else payloadBox.classList.add('hidden');
+        });
+        // expose a hook to set debug payload from fetchCourseAndPopulate
+        window.__setTeePayloadDebug = function(txt) {
+          if (payloadBox) {
+            payloadBox.textContent = typeof txt === 'string' ? txt : JSON.stringify(txt, null, 2);
+            payloadBox.classList.remove('hidden');
+          }
+        };
+      } catch (e) {}
 
       // Confirm modal
       function showConfirmModal(suggestedText, onConfirm) {

@@ -43,7 +43,6 @@
           </h1>
         </div>
         <div class="flex items-center gap-3">
-          <a href="{% url 'shots:courses_list' %}" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">View My Courses</a>
           {% if user.is_authenticated %}
             <a href="{% url 'logout' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Log Out</a>
           {% endif %}

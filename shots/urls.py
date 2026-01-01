@@ -16,9 +16,15 @@ urlpatterns = [
     path('shots/<int:pk>/toggle-favorite/', views.toggle_favorite, name='toggle_favorite'),
     # Golf Course API proxy
     path('api/golf-course/', api.golf_course_search, name='api_golf_course'),
+    # Backwards-compatible alias (some templates may reference this name)
+    path('api/golf-course/search/', api.golf_course_search, name='golf_course_search'),
     path('api/course-suggestions/', api.course_suggestions, name='api_course_suggestions'),
     # Course / hole grouping pages
     path('courses/', views.courses_list, name='courses_list'),
+    path('courses/add/', views.add_course, name='add_course'),
+    path('courses/<int:pk>/', views.course_detail, name='course_detail'),
+    path('courses/<int:pk>/refresh-tees/', views.refresh_course_tees, name='refresh_course_tees'),
+    path('courses/<int:pk>/add-round/', views.add_round, name='add_round'),
     path('courses/<slug:course_slug>/', views.course_holes, name='course_holes'),
     path('courses/<slug:course_slug>/hole/<int:hole>/', views.hole_shots, name='hole_shots'),
     # Rounds grouping
@@ -27,4 +33,5 @@ urlpatterns = [
     path('round/<int:round_pk>/holes/', views.round_holes, name='round_holes'),
     path('round/<int:round_pk>/hole/<int:hole>/shots/', views.round_hole_shots, name='round_hole_shots'),
     path('round/<int:round_pk>/delete/', views.delete_round, name='delete_round'),
+    path('courses/<int:pk>/delete/', views.delete_course, name='delete_course'),
 ]

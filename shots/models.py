@@ -75,6 +75,20 @@ class CourseMetadata(models.Model):
         return f"{self.name} ({self.course_slug})"
 
 
+class Course(models.Model):
+    """User-owned course record for simple course management in UI."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True)
+    # JSON-encoded list of tee names returned from external golf course API.
+    # Stored as text to avoid DB-specific JSON field requirements.
+    tee_names_json = models.TextField(blank=True, null=True, help_text='JSON list of tee names from API')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
 class ShotRound(models.Model):
     """Represents a played round/session so shots can be grouped by date/name."""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

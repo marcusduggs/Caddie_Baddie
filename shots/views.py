@@ -37,9 +37,48 @@ import threading
 import requests
 import urllib.parse
 import logging
+import re
 
 
 logger = logging.getLogger(__name__)
+
+
+def _tee_matches(preferred, name):
+    """Return True if the preferred tee matches the tee name based on token or substring."""
+    try:
+        if not preferred or not name:
+            return False
+        pn = preferred.strip().lower()
+        tn_tokens = [t for t in re.split(r"[^a-z0-9]+", (name or '').lower()) if t]
+        if pn in tn_tokens:
+            return True
+        return pn in (name or '').lower()
+    except Exception:
+        return False
+
+
+def _normalize_tee_names(names):
+    """Normalize and deduplicate a list of tee names.
+
+    - Strips whitespace, collapses internal whitespace, preserves original casing of
+      the first-seen form, and deduplicates case-insensitively while preserving order.
+    """
+    out = []
+    seen = set()
+    if not names:
+        return out
+    for n in names:
+        try:
+            if not n:
+                continue
+            s = re.sub(r"\s+", ' ', str(n).strip())
+            key = s.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(s)
+        except Exception:
+            continue
+    return out
 
 
 def probe_video_creation_time(path):
@@ -47,6 +86,7 @@ def probe_video_creation_time(path):
     Returns a naive datetime in UTC if found, otherwise None.
     Falls back to file mtime externally if ffprobe not available or no metadata.
     """
+    ffprobe_dt = None
     try:
         # Call ffprobe to get format tags
         cmd = [FFMPEG_PATH or 'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', path]
@@ -62,22 +102,45 @@ def probe_video_creation_time(path):
                     try:
                         from dateutil import parser as dateparser
                         dt = dateparser.parse(tags[key])
-                        # Convert to naive UTC
+                        # Convert to timezone-aware UTC datetime
                         import datetime
                         if dt.tzinfo:
-                            dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                        return dt
+                            dt = dt.astimezone(datetime.timezone.utc)
+                        else:
+                            # assume naive times are in UTC - attach UTC tzinfo
+                            dt = dt.replace(tzinfo=datetime.timezone.utc)
+                        ffprobe_dt = dt
+                        break
                     except Exception:
                         pass
     except Exception:
         pass
-    # fallback to file mtime
+    # File mtime fallback (timezone-aware UTC)
     try:
         import datetime
-        mtime = os.path.getmtime(path)
-        return datetime.datetime.utcfromtimestamp(mtime)
+        mtime_ts = os.path.getmtime(path)
+        mtime_dt = datetime.datetime.fromtimestamp(mtime_ts, tz=datetime.timezone.utc)
     except Exception:
-        return None
+        mtime_dt = None
+
+    # Prefer filesystem mtime when it differs significantly from ffprobe tag
+    try:
+        if ffprobe_dt and mtime_dt:
+            # If difference is more than 60 seconds, prefer mtime (Finder/filesystem)
+            diff = abs((mtime_dt - ffprobe_dt).total_seconds())
+            if diff > 60:
+                return mtime_dt
+            else:
+                return ffprobe_dt
+        # If only one available, return it
+        if mtime_dt:
+            return mtime_dt
+        if ffprobe_dt:
+            return ffprobe_dt
+    except Exception:
+        pass
+
+    return None
 
 # Hard-coded Golf Course API key override for local testing.
 # WARNING: Hard-coding secrets in source is insecure. Replace the placeholder
@@ -179,7 +242,72 @@ def create_shot(request):
 def analyze_upload(request):
     """Handle uploading a video, run overlay processing, and show the result."""
     if request.method == 'POST':
+        # Build dynamic tee choices from the provided course name so the ChoiceField
+        # accepts API-returned tee names (e.g. 'Silver'). This prevents validation
+        # errors when the client populated the select from the API.
+        course_candidate = request.POST.get('course') or request.GET.get('course')
+        prefetched_tee_names = []
+        try:
+            api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+            if api_key and course_candidate:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': course_candidate}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                    courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                    if isinstance(courses, list):
+                        for c in courses:
+                            tees = c.get('tees') if isinstance(c, dict) else None
+                            if isinstance(tees, dict):
+                                for arr in tees.values():
+                                    if isinstance(arr, list):
+                                        for t in arr:
+                                            try:
+                                                name = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                if name:
+                                                    prefetched_tee_names.append(name)
+                                            except Exception:
+                                                pass
+        except Exception:
+            prefetched_tee_names = []
+
+        # Normalize prefetched tee names and combine with static choices while preserving order
+        prefetched_tee_names = _normalize_tee_names(prefetched_tee_names)
+        static_choices = getattr(ShotAnalysisForm, 'TEE_CHOICES', []) or []
+        seen = set()
+        combined = [('', 'Any')]
+        for n in prefetched_tee_names:
+            if n and n.lower() not in seen:
+                seen.add(n.lower())
+                combined.append((n, n))
+        # Ensure the posted selected_tee is accepted even if API parsing missed it
+        posted_selected = request.POST.get('selected_tee')
+        if posted_selected and posted_selected not in seen:
+            try:
+                seen.add(posted_selected)
+                combined.insert(1, (posted_selected, posted_selected))
+            except Exception:
+                pass
+        # Ensure the posted selected_tee is accepted even if API parsing missed it
+        posted_selected = request.POST.get('selected_tee')
+        if posted_selected and posted_selected not in seen:
+            try:
+                seen.add(posted_selected)
+                combined.insert(1, (posted_selected, posted_selected))
+            except Exception:
+                pass
+        for val, label in static_choices:
+            if val and val.lower() not in seen:
+                seen.add(val.lower())
+                combined.append((val, label))
+
         form = ShotAnalysisForm(request.POST, request.FILES)
+        try:
+            # Inject dynamic choices into the bound form before validation
+            form.fields['selected_tee'].choices = combined
+        except Exception:
+            pass
         if form.is_valid():
             # Save the form to create the analysis object
             analysis = form.save(commit=False)
@@ -216,9 +344,16 @@ def analyze_upload(request):
                         
                         # Save the analysis to the database
                         analysis.save()
-                        
-                        # Success! Redirect to detail page
+
+                        # Success! Redirect to the round page if this analysis was attached
+                        # to a round; otherwise go to the analysis detail page.
                         messages.success(request, 'Video processed successfully!')
+                        try:
+                            if getattr(analysis, 'round', None):
+                                return redirect('shots:round_holes', round_pk=analysis.round.pk)
+                        except Exception:
+                            # fallback to analysis detail on any error
+                            pass
                         return redirect('shots:analysis_detail', pk=analysis.pk)
                         
                     except FileNotFoundError as e:
@@ -280,7 +415,52 @@ def analyze_upload(request):
         db_path = None
     request_user_info = {'pk': getattr(request.user, 'pk', None), 'is_authenticated': getattr(request.user, 'is_authenticated', False), 'repr': repr(request.user)}
 
-    return render(request, 'shots/analyze_form.html', {'form': form, 'rounds': rounds, 'all_rounds': all_rounds, 'db_path': db_path, 'request_user_info': request_user_info})
+    # Prefill course from querystring when present (e.g., Add New Hole from rounds page)
+    initial_course = request.GET.get('course') or request.POST.get('course') or None
+    # If no explicit course provided, fall back to session-stored current course (if user previously viewed rounds for a course)
+    if not initial_course:
+        try:
+            sess_name = request.session.get('current_course_name')
+            if sess_name:
+                initial_course = sess_name
+                # Note: session-based prefills are not treated as locked by default
+        except Exception:
+            pass
+
+    # Determine if we should lock the course field (fixed_course) and preselect a round
+    fixed_course = False
+    fixed_course_obj = None
+    fixed_course_name = None
+    selected_round_id = request.GET.get('round_id') or request.POST.get('round_id') or None
+    if initial_course:
+        # If the user has a saved Course record matching this name, prefer that object
+        try:
+            from .models import Course
+            course_obj = Course.objects.filter(user=request.user, name=initial_course).first()
+            if course_obj:
+                fixed_course = True
+                fixed_course_obj = course_obj
+                fixed_course_name = course_obj.name
+            else:
+                # Still lock the course input to the provided name even if no Course record exists
+                fixed_course = True
+                fixed_course_name = initial_course
+        except Exception:
+            fixed_course = True
+            fixed_course_name = initial_course
+
+    return render(request, 'shots/analyze_form.html', {
+        'form': form,
+        'rounds': rounds,
+        'all_rounds': all_rounds,
+        'db_path': db_path,
+        'request_user_info': request_user_info,
+        'initial_course': initial_course,
+        'fixed_course': fixed_course,
+        'fixed_course_obj': fixed_course_obj,
+        'fixed_course_name': fixed_course_name,
+        'selected_round_id': selected_round_id,
+    })
 
 
 def analysis_detail(request, pk):
@@ -352,22 +532,246 @@ def delete_shot(request, pk):
 
         sa.delete()
         messages.success(request, 'Shot deleted successfully.')
-        return redirect('shots:shot_list')
+        # Prefer explicit next param, otherwise fall back to HTTP_REFERER, then to shots list
+        redirect_to = request.POST.get('next') or request.GET.get('next') or request.META.get('HTTP_REFERER')
+        if not redirect_to:
+            try:
+                from django.urls import reverse
+                redirect_to = reverse('shots:shot_list')
+            except Exception:
+                redirect_to = '/shots/'
+        return redirect(redirect_to)
 
-    # For non-POST requests, redirect back
-    return redirect('shots:shot_list')
+    # For non-POST requests, attempt to send the user back to the page they came from
+    back = request.META.get('HTTP_REFERER')
+    if back:
+        return redirect(back)
+    try:
+        from django.urls import reverse
+        return redirect(reverse('shots:shot_list'))
+    except Exception:
+        return redirect('/shots/')
 
 
 @login_required
 def courses_list(request):
     """List distinct course names from the user's ShotAnalysis records."""
-    # Gather non-empty course names for the user
+    # If Course model exists with user records, prefer that
+    try:
+        from .models import Course
+        user_courses = Course.objects.filter(user=request.user).order_by('-created_at')
+        if user_courses.exists():
+            course_items = []
+            rounds_map = {}
+            from .models import ShotRound
+            for c in user_courses:
+                course_items.append({'pk': c.pk, 'name': c.name, 'slug': c.slug, 'count': ShotAnalysis.objects.filter(user=request.user, course_name=c.name).count()})
+                # collect recent rounds for this course
+                rs = ShotRound.objects.filter(user=request.user, course_name=c.name).order_by('-played_at')[:10]
+                rounds_map[c.pk] = [{'pk': r.pk, 'name': r.name or 'Round', 'played_at': r.played_at} for r in rs]
+            # build a flattened list of user rounds for quick-add dropdown
+            user_rounds = []
+            for c in user_courses:
+                rs = ShotRound.objects.filter(user=request.user, course_name=c.name).order_by('-played_at')[:50]
+                for r in rs:
+                    user_rounds.append({'course_pk': c.pk, 'course_name': c.name, 'round_pk': r.pk, 'round_name': r.name or 'Round', 'played_at': r.played_at})
+            return render(request, 'shots/courses_list.html', {'courses': course_items, 'course_rounds': rounds_map, 'user_rounds': user_rounds})
+    except Exception:
+        pass
+
+    # Fallback: Gather non-empty course names from ShotAnalysis
     qs = ShotAnalysis.objects.filter(user=request.user).exclude(course_name__isnull=True).exclude(course_name__exact='')
-    # Annotate unique course names and counts
     courses = qs.values('course_name').annotate(count=Count('id')).order_by('course_name')
-    # Convert to (name, slug, count)
     course_items = [{'name': c['course_name'], 'slug': slugify(c['course_name']), 'count': c['count']} for c in courses]
     return render(request, 'shots/courses_list.html', {'courses': course_items})
+
+
+@login_required
+def add_course(request):
+    """Simple form to add a user-owned Course."""
+    from .models import Course
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        if not name:
+            return render(request, 'shots/add_course.html', {'error': 'Course name required'})
+        slug = slugify(name)
+        # Ensure unique slug by appending counter if needed
+        base = slug
+        i = 1
+        while Course.objects.filter(slug=slug).exists():
+            slug = f"{base}-{i}"
+            i += 1
+        course = Course.objects.create(user=request.user, name=name, slug=slug)
+
+        # Best-effort: fetch tee names from the Golf Course API and save them on the course
+        api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+        if api_key:
+            try:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': name}, headers={'Authorization': f'Key {api_key}'}, timeout=8)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                    courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                    tee_names = []
+                    if isinstance(courses, list):
+                        for c in courses:
+                            tees = c.get('tees') if isinstance(c, dict) else None
+                            if isinstance(tees, dict):
+                                for arr in tees.values():
+                                    if isinstance(arr, list):
+                                        for t in arr:
+                                            try:
+                                                tname = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                if tname and tname not in tee_names:
+                                                    tee_names.append(tname)
+                                            except Exception:
+                                                pass
+                    if tee_names:
+                        import json as _json
+                        course.tee_names_json = _json.dumps(_normalize_tee_names(tee_names))
+                        course.save()
+            except Exception:
+                # Non-fatal: ignore API failures during course creation
+                pass
+
+        messages.success(request, 'Course added.')
+        return redirect('shots:courses_list')
+
+    return render(request, 'shots/add_course.html')
+
+
+@login_required
+def course_detail(request, pk):
+    from .models import Course, ShotRound
+    course = get_object_or_404(Course, pk=pk, user=request.user)
+    rounds = ShotRound.objects.filter(user=request.user, course_name=course.name).order_by('-played_at')[:50]
+    return render(request, 'shots/course_detail.html', {'course': course, 'rounds': rounds})
+
+
+@login_required
+def refresh_course_tees(request, pk):
+    """POST endpoint to re-fetch tee names for a Course and persist them."""
+    from .models import Course
+    if request.method != 'POST':
+        messages.error(request, 'Invalid request method.')
+        return redirect('shots:course_detail', pk=pk)
+
+    course = get_object_or_404(Course, pk=pk, user=request.user)
+    api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+    updated = False
+    if api_key and course.name:
+        try:
+            api_url = 'https://api.golfcourseapi.com/v1/search'
+            resp = requests.get(api_url, params={'search_query': course.name}, headers={'Authorization': f'Key {api_key}'}, timeout=8)
+            if resp.status_code == 200:
+                payload = resp.json()
+                data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                tee_names = []
+                if isinstance(courses, list):
+                    for c in courses:
+                        tees = c.get('tees') if isinstance(c, dict) else None
+                        if isinstance(tees, dict):
+                            for arr in tees.values():
+                                if isinstance(arr, list):
+                                    for t in arr:
+                                        try:
+                                            tname = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                            if tname and tname not in tee_names:
+                                                tee_names.append(tname)
+                                        except Exception:
+                                            pass
+                if tee_names:
+                    import json as _json
+                    course.tee_names_json = _json.dumps(_normalize_tee_names(tee_names))
+                    course.save()
+                    updated = True
+        except Exception:
+            updated = False
+
+    if updated:
+        messages.success(request, 'Course tee sets refreshed.')
+    else:
+        messages.error(request, 'Failed to refresh tee sets from API.')
+    return redirect('shots:course_detail', pk=pk)
+
+
+@login_required
+def add_round(request, pk):
+    """Render analyze form with the course preselected/locked. POST still handled by analyze_upload.
+    This view only renders GET; the form posts to /analyze/ unchanged.
+    """
+    from .models import Course
+    course = get_object_or_404(Course, pk=pk, user=request.user)
+    form = ShotAnalysisForm()
+    # existing rounds for attach list - only rounds played at this course
+    from .models import ShotRound
+    rounds = ShotRound.objects.filter(user=request.user, course_name=course.name).order_by('-played_at', '-created_at')[:50]
+    selected_round = request.GET.get('round_id')
+
+    # Prefer tee names stored on Course model; fall back to API fetch if not present.
+    prefetched_tee_names = []
+    try:
+        import json as _json
+        if course.tee_names_json:
+            try:
+                parsed = _json.loads(course.tee_names_json)
+                if isinstance(parsed, list):
+                    prefetched_tee_names = _normalize_tee_names(parsed)
+            except Exception:
+                prefetched_tee_names = []
+    except Exception:
+        prefetched_tee_names = []
+
+    # If no stored tees, attempt a best-effort API fetch (non-fatal)
+    if not prefetched_tee_names:
+        try:
+            api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+            if api_key and course.name:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': course.name}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                    courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                    if isinstance(courses, list):
+                        for c in courses:
+                            tees = c.get('tees') if isinstance(c, dict) else None
+                            if isinstance(tees, dict):
+                                for arr in tees.values():
+                                    if isinstance(arr, list):
+                                        for t in arr:
+                                            try:
+                                                name = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                if name and name not in prefetched_tee_names:
+                                                    prefetched_tee_names.append(name)
+                                            except Exception:
+                                                pass
+        except Exception:
+            prefetched_tee_names = []
+
+    # Deduplicate while preserving order
+    seen = set(); ordered = []
+    for n in prefetched_tee_names:
+        if n and n not in seen:
+            seen.add(n); ordered.append(n)
+
+    try:
+        logger.info(f"add_round: prefetched {len(ordered)} tees for course={course.name!r} -> {ordered}")
+    except Exception:
+        pass
+
+    return render(request, 'shots/analyze_form.html', {
+        'form': form,
+        'rounds': rounds,
+        'fixed_course': True,
+        'fixed_course_obj': course,
+        'fixed_course_name': course.name,
+        'selected_round_id': selected_round,
+        'prefetched_tee_names': ordered,
+        'initial_course': course.name,
+    })
 
 
 @login_required
@@ -375,15 +779,44 @@ def rounds_list(request, course_slug=None):
     """List rounds for the user. If course_slug provided, filter rounds for that course."""
     from .models import ShotRound
     qs = ShotRound.objects.filter(user_id=getattr(request.user, 'pk', None))
+    fixed_course_name = None
     if course_slug:
-        # Map slug back to course_name via existing shot records
-        all_courses = ShotAnalysis.objects.filter(user=request.user).values_list('course_name', flat=True).distinct()
-        slug_map = {slugify(c): c for c in all_courses}
-        course_name = slug_map.get(course_slug)
-        if course_name:
-            qs = qs.filter(course_name=course_name)
+        # Prefer user-created Course records for this slug
+        try:
+            from .models import Course
+            course_obj = Course.objects.filter(user=request.user, slug=course_slug).first()
+            if course_obj:
+                qs = qs.filter(course_name=course_obj.name)
+                fixed_course_name = course_obj.name
+            else:
+                # Fallback to mapping against existing ShotAnalysis entries
+                all_courses = ShotAnalysis.objects.filter(user=request.user).values_list('course_name', flat=True).distinct()
+                slug_map = {slugify(c): c for c in all_courses}
+                course_name = slug_map.get(course_slug)
+                if course_name:
+                    qs = qs.filter(course_name=course_name)
+                    fixed_course_name = course_name
+        except Exception:
+            # If Course model lookup fails for any reason, fallback to old behavior
+            all_courses = ShotAnalysis.objects.filter(user=request.user).values_list('course_name', flat=True).distinct()
+            slug_map = {slugify(c): c for c in all_courses}
+            course_name = slug_map.get(course_slug)
+            if course_name:
+                qs = qs.filter(course_name=course_name)
+                fixed_course_name = course_name
     rounds = qs.order_by('-played_at', '-created_at')[:100]
-    return render(request, 'shots/rounds_list.html', {'rounds': rounds, 'course_slug': course_slug})
+    # Persist the current course in the user's session so subsequent uploads default to it
+    try:
+        if course_slug:
+            # store slug and friendly name
+            request.session['current_course_slug'] = course_slug
+            request.session['current_course_name'] = fixed_course_name
+        else:
+            request.session.pop('current_course_slug', None)
+            request.session.pop('current_course_name', None)
+    except Exception:
+        pass
+    return render(request, 'shots/rounds_list.html', {'rounds': rounds, 'course_slug': course_slug, 'fixed_course_name': fixed_course_name})
 
 
 @login_required
@@ -434,6 +867,60 @@ def delete_round(request, round_pk):
 
 
 
+@login_required
+def delete_course(request, pk):
+    """Delete a Course and all its ShotRound and ShotAnalysis records.
+
+    Accepts POST only and verifies ownership of the Course.
+    """
+    from .models import Course, ShotRound
+    if request.method != 'POST':
+        messages.error(request, 'Invalid request method for deleting a course.')
+        return redirect(request.META.get('HTTP_REFERER', 'shots:courses_list'))
+
+    course = get_object_or_404(Course, pk=pk)
+    if course.user_id != getattr(request.user, 'pk', None):
+        messages.error(request, 'You do not have permission to delete this course.')
+        return redirect(request.META.get('HTTP_REFERER', 'shots:courses_list'))
+
+    # Find rounds for this course (by course name)
+    rounds = ShotRound.objects.filter(user=request.user, course_name=course.name)
+    for r in rounds:
+        # delete associated analyses and their files
+        related = ShotAnalysis.objects.filter(round=r)
+        for sa in related:
+            try:
+                if sa.input_video and hasattr(sa.input_video, 'path') and os.path.exists(sa.input_video.path):
+                    os.remove(sa.input_video.path)
+            except Exception:
+                logger.exception('Failed to remove input file for analysis %s', getattr(sa, 'pk', 'unknown'))
+            try:
+                if sa.processed_video and hasattr(sa.processed_video, 'path') and os.path.exists(sa.processed_video.path):
+                    os.remove(sa.processed_video.path)
+            except Exception:
+                logger.exception('Failed to remove processed file for analysis %s', getattr(sa, 'pk', 'unknown'))
+            try:
+                sa.delete()
+            except Exception:
+                logger.exception('Failed to delete ShotAnalysis %s', getattr(sa, 'pk', 'unknown'))
+        # delete the round
+        try:
+            r.delete()
+        except Exception:
+            logger.exception('Failed to delete ShotRound %s', getattr(r, 'pk', 'unknown'))
+
+    # Finally delete the Course record
+    try:
+        course.delete()
+        messages.success(request, 'Course and its rounds were deleted successfully.')
+    except Exception:
+        logger.exception('Failed to delete Course %s', getattr(course, 'pk', 'unknown'))
+        messages.error(request, 'Failed to delete the course. Please try again.')
+
+    return redirect('shots:courses_list')
+
+
+
 
 
 @login_required
@@ -445,7 +932,13 @@ def round_holes(request, round_pk):
     qs = ShotAnalysis.objects.filter(user=request.user, round=r).exclude(hole_number__isnull=True)
     holes = qs.values('hole_number').annotate(count=Count('id')).order_by('hole_number')
     hole_items = [{'hole': h['hole_number'], 'count': h['count']} for h in holes]
-    return render(request, 'shots/round_holes.html', {'round': r, 'holes': hole_items})
+    # provide course_slug so templates can navigate back to course-scoped rounds
+    try:
+        from django.utils.text import slugify
+        course_slug = slugify(r.course_name) if r.course_name else None
+    except Exception:
+        course_slug = None
+    return render(request, 'shots/round_holes.html', {'round': r, 'holes': hole_items, 'course_slug': course_slug})
 
 
 @login_required
@@ -667,7 +1160,7 @@ def fetch_hole_info(course_name, hole, preferred_tee=None):
                                 if preferred_tee:
                                     for tee in tee_list:
                                         tn = (tee.get('tee_name') or '').lower()
-                                        if preferred_tee.lower() in tn:
+                                        if _tee_matches(preferred_tee, tn):
                                             holes = tee.get('holes')
                                             if isinstance(holes, list):
                                                 idx = int(hole_num) - 1
@@ -676,7 +1169,7 @@ def fetch_hole_info(course_name, hole, preferred_tee=None):
                                                     y = he.get('yardage') or he.get('yards') or he.get('length')
                                                     p = he.get('par') or he.get('par_value') or he.get('par_total')
                                                     hc = he.get('handicap') or he.get('hcp') or he.get('stroke_index')
-                                                    return (y, p, hc, f"{group_name}.{tee.get('tee_name')}")
+                                                    return (y, p, hc, f"{tee.get('tee_name')}")
                                 # generic tee list fallback
                                 for tee in tee_list:
                                     holes = tee.get('holes')
@@ -791,8 +1284,60 @@ def analyze_upload(request):
     the frontend overlay can show them immediately.
     """
     if request.method == 'POST':
+        # Ensure the bound form accepts dynamic tee names returned by the Golf Course API
+        course_candidate = request.POST.get('course') or request.GET.get('course')
+        prefetched_tee_names = []
+        try:
+            api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+            if api_key and course_candidate:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': course_candidate}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                    courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                    if isinstance(courses, list):
+                        for c in courses:
+                            tees = c.get('tees') if isinstance(c, dict) else None
+                            if isinstance(tees, dict):
+                                for arr in tees.values():
+                                    if isinstance(arr, list):
+                                        for t in arr:
+                                            try:
+                                                name = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                if name:
+                                                    prefetched_tee_names.append(name)
+                                            except Exception:
+                                                pass
+        except Exception:
+            prefetched_tee_names = []
+
+        static_choices = getattr(ShotAnalysisForm, 'TEE_CHOICES', []) or []
+        seen = set()
+        combined = [('', 'Any')]
+        for n in prefetched_tee_names:
+            if n and n not in seen:
+                seen.add(n)
+                combined.append((n, n))
+        for val, label in static_choices:
+            if val and val not in seen:
+                seen.add(val)
+                combined.append((val, label))
+
         form = ShotAnalysisForm(request.POST, request.FILES)
+        try:
+            form.fields['selected_tee'].choices = combined
+        except Exception:
+            pass
+        try:
+            logger.info(f"analyze_upload POST start: user={getattr(request.user,'pk',None)} form_valid_attempt")
+        except Exception:
+            pass
         if form.is_valid():
+            try:
+                logger.info("analyze_upload: form.is_valid() == True")
+            except Exception:
+                pass
             # Read optional fields from POST (apply to all uploaded files)
             course_name = request.POST.get('course', '').strip() or None
             hole_str = request.POST.get('hole', '').strip() or None
@@ -845,9 +1390,82 @@ def analyze_upload(request):
                 round_obj = None
 
             uploaded_files = request.FILES.getlist('input_video') or []
+            try:
+                logger.info(f"analyze_upload: uploaded_files count={len(uploaded_files)}")
+            except Exception:
+                pass
             if not uploaded_files:
                 messages.error(request, 'No video file uploaded.')
+                try:
+                    logger.warning('analyze_upload: no uploaded_files found in POST')
+                except Exception:
+                    pass
                 return render(request, 'shots/analyze_form.html', {'form': form})
+
+            # Server-side defensive check: ensure per-file club and distance are provided.
+            # The client names per-file inputs using the ORIGINAL upload index (club_0, distance_0),
+            # but Django's uploaded_files order may differ. Therefore detect indices from POST.
+            import re
+            idxs = set()
+            for k in request.POST.keys():
+                m = re.match(r'^(?:club|distance)_(\d+)$', k)
+                if m:
+                    try:
+                        idxs.add(int(m.group(1)))
+                    except Exception:
+                        pass
+
+            try:
+                logger.info(f"analyze_upload: detected per-file indices in POST: {sorted(list(idxs))}")
+            except Exception:
+                pass
+
+            missing_meta = []
+            if idxs:
+                for idx in sorted(idxs):
+                    club_val = (request.POST.get(f'club_{idx}', '') or '').strip()
+                    dist_val = (request.POST.get(f'distance_{idx}', '') or '').strip()
+                    if not club_val or not dist_val:
+                        missing_meta.append(idx)
+            else:
+                # fallback: ensure at least one club/distance exists when files were uploaded
+                for idx, _ in enumerate(uploaded_files):
+                    club_val = (request.POST.get(f'club_{idx}', '') or '').strip()
+                    dist_val = (request.POST.get(f'distance_{idx}', '') or '').strip()
+                    if not club_val or not dist_val:
+                        missing_meta.append(idx)
+
+            if missing_meta:
+                messages.error(request, 'Please select a club and provide a distance (yards) for each selected video before analyzing.')
+                # Re-render the form with existing rounds and context so the user can correct entries
+                rounds = []
+                try:
+                    from .models import ShotRound, Course
+                    rounds = ShotRound.objects.filter(user_id=getattr(request.user, 'pk', None)).order_by('-played_at', '-created_at')[:50]
+                except Exception:
+                    rounds = []
+
+                # Preserve fixed course context when available (add-round flow passes course hidden input)
+                context = {'form': form, 'rounds': rounds}
+                try:
+                    course_name_post = request.POST.get('course', '').strip() or None
+                    if course_name_post:
+                        from .models import Course
+                        cobj = Course.objects.filter(user=request.user, name=course_name_post).first()
+                        if cobj:
+                            context['fixed_course'] = True
+                            context['fixed_course_obj'] = cobj
+                        else:
+                            # still pass the course string so the input remains filled
+                            context['course'] = course_name_post
+                except Exception:
+                    pass
+
+                try:
+                    logger.warning(f"analyze_upload: missing_meta indices={missing_meta}; re-rendering analyze_form")
+                except Exception:
+                    pass
+                return render(request, 'shots/analyze_form.html', context)
 
             created_pks = []
             # Determine global club/distance from form.cleaned_data if present
@@ -990,109 +1608,163 @@ def analyze_upload(request):
                                     # continue using API payload for yardage/par
 
                                     def find_yardage_recursive(obj, hole, preferred_tee=None):
+                                        """Recursively search API payload for hole yardage.
+
+                                        Matching priority when preferred_tee is provided:
+                                        1) direct case-insensitive equality on tee_name
+                                        2) normalized exact match (alnum only)
+                                        3) token/substring match via _tee_matches
+                                        """
                                         try:
+                                            def _norm(s):
+                                                return re.sub(r'[^a-z0-9]+', '', (s or '').lower()).strip()
+
+                                            # Helper to extract yard/par from a holes list at index
+                                            def _extract_from_holes(holes, hole_idx):
+                                                if not isinstance(holes, list):
+                                                    return None
+                                                if 0 <= hole_idx < len(holes):
+                                                    he = holes[hole_idx]
+                                                    y = he.get('yardage') or he.get('yards') or he.get('length')
+                                                    p = he.get('par') or he.get('par_value') or he.get('par_total')
+                                                    if y is not None:
+                                                        try:
+                                                            p_val = int(p) if p is not None else None
+                                                        except Exception:
+                                                            p_val = None
+                                                        return (int(y), p_val)
+                                                return None
+
+                                            # If dict with tees/courses
                                             if isinstance(obj, dict):
-                                                if 'tees' in obj and isinstance(obj.get('tees'), dict):
-                                                    tees_obj = obj.get('tees')
-                                                    for group_name, tee_list in tees_obj.items():
-                                                        if isinstance(tee_list, list):
-                                                            if preferred_tee:
-                                                                for tee in tee_list:
-                                                                    tn = (tee.get('tee_name') or '').lower()
-                                                                    if preferred_tee.lower() in tn:
-                                                                        holes = tee.get('holes')
-                                                                        if isinstance(holes, list):
-                                                                            idx = int(hole) - 1
-                                                                            if 0 <= idx < len(holes):
-                                                                                hole_entry = holes[idx]
-                                                                                y = hole_entry.get('yardage') or hole_entry.get('yards') or hole_entry.get('length')
-                                                                                p = hole_entry.get('par') or hole_entry.get('par_value') or hole_entry.get('par_total')
-                                                                                if y is not None:
-                                                                                    try:
-                                                                                        p_val = int(p) if p is not None else None
-                                                                                    except Exception:
-                                                                                        p_val = None
-                                                                                    return (int(y), p_val, f"{group_name}.{tee.get('tee_name')}")
-                                                            for tee in tee_list:
-                                                                holes = tee.get('holes')
-                                                                if isinstance(holes, list):
-                                                                    idx = int(hole) - 1
-                                                                    if 0 <= idx < len(holes):
-                                                                        hole_entry = holes[idx]
-                                                                        y = hole_entry.get('yardage') or hole_entry.get('yards') or hole_entry.get('length')
-                                                                        p = hole_entry.get('par') or hole_entry.get('par_value') or hole_entry.get('par_total')
-                                                                        if y is not None:
-                                                                            try:
-                                                                                p_val = int(p) if p is not None else None
-                                                                            except Exception:
-                                                                                p_val = None
-                                                                            return (int(y), p_val, f"{group_name}.{tee.get('tee_name')}")
+                                                # Collect candidate tees
+                                                candidates = []
+                                                # If payload has courses
+                                                if 'courses' in obj and isinstance(obj.get('courses'), list):
+                                                    for course in obj.get('courses'):
+                                                        tees = course.get('tees') if isinstance(course.get('tees'), dict) else None
+                                                        if tees:
+                                                            for group, tlist in tees.items():
+                                                                if isinstance(tlist, list):
+                                                                    for tee in tlist:
+                                                                        candidates.append((group, tee))
+                                                # If top-level tees dict
+                                                elif 'tees' in obj and isinstance(obj.get('tees'), dict):
+                                                    for group, tlist in obj.get('tees').items():
+                                                        if isinstance(tlist, list):
+                                                            for tee in tlist:
+                                                                candidates.append((group, tee))
 
-                                                if 'holes' in obj and isinstance(obj.get('holes'), list):
-                                                    holes = obj.get('holes')
-                                                    idx = int(hole) - 1
-                                                    if 0 <= idx < len(holes):
-                                                        hole_entry = holes[idx]
-                                                        y = hole_entry.get('yardage') or hole_entry.get('yards') or hole_entry.get('length')
-                                                        p = hole_entry.get('par') or hole_entry.get('par_value') or hole_entry.get('par_total')
-                                                        if y is not None:
-                                                            try:
-                                                                p_val = int(p) if p is not None else None
-                                                            except Exception:
-                                                                p_val = None
-                                                            return (int(y), p_val, None)
+                                                hole_idx = int(hole) - 1
 
-                                                possible_num = None
-                                                for k in ('number', 'hole', 'hole_number'):
-                                                    if k in obj:
-                                                        possible_num = obj.get(k)
-                                                        break
-                                                if possible_num is not None:
-                                                    try:
-                                                        if int(possible_num) == int(hole):
-                                                            for yk in ('yardage', 'yards', 'length', 'tee_yards'):
-                                                                if yk in obj and obj.get(yk) is not None:
+                                                # 1) direct equality
+                                                if preferred_tee:
+                                                    pref = (preferred_tee or '').strip().lower()
+                                                    if pref:
+                                                        for group, tee in candidates:
+                                                            tn = (tee.get('tee_name') or '')
+                                                            holes = tee.get('holes')
+                                                            if tn and tn.strip().lower() == pref:
+                                                                extracted = _extract_from_holes(holes, hole_idx)
+                                                                if extracted:
+                                                                    yv, pv = extracted
                                                                     try:
-                                                                        yv = int(obj.get(yk))
-                                                                        p = obj.get('par') or obj.get('par_value') or obj.get('par_total')
-                                                                        try:
-                                                                            p_val = int(p) if p is not None else None
-                                                                        except Exception:
-                                                                            p_val = None
-                                                                        return (yv, p_val, None)
+                                                                        logger.info(f"find_yardage_recursive: direct equality match preferred={preferred_tee!r} matched_tee={tn!r}")
                                                                     except Exception:
                                                                         pass
-                                                    except Exception:
-                                                        pass
+                                                                    return (yv, pv, tn)
 
-                                                for v in obj.values():
-                                                    res = find_yardage_recursive(v, hole, preferred_tee)
-                                                    if res is not None:
-                                                        return res
-                                                return None
+                                                # 2) normalized exact match
+                                                if preferred_tee:
+                                                    pnorm = _norm(preferred_tee)
+                                                    if pnorm:
+                                                        for group, tee in candidates:
+                                                            tn = (tee.get('tee_name') or '')
+                                                            holes = tee.get('holes')
+                                                            if _norm(tn) == pnorm:
+                                                                extracted = _extract_from_holes(holes, hole_idx)
+                                                                if extracted:
+                                                                    yv, pv = extracted
+                                                                    try:
+                                                                        logger.info(f"find_yardage_recursive: exact match preferred={preferred_tee!r} matched_tee={tn!r}")
+                                                                    except Exception:
+                                                                        pass
+                                                                    return (yv, pv, tn)
 
-                                            if isinstance(obj, list):
-                                                if len(obj) > 0 and all(isinstance(it, dict) for it in obj):
+                                                # 3) token/substring fallback
+                                                if preferred_tee:
                                                     try:
-                                                        idx = int(hole) - 1
-                                                        if 0 <= idx < len(obj):
-                                                            hole_entry = obj[idx]
-                                                            y = hole_entry.get('yardage') or hole_entry.get('yards') or hole_entry.get('length')
-                                                            p = hole_entry.get('par') or hole_entry.get('par_value') or hole_entry.get('par_total')
-                                                            if y is not None:
-                                                                try:
-                                                                    p_val = int(p) if p is not None else None
-                                                                except Exception:
-                                                                    p_val = None
-                                                                return (int(y), p_val, None)
+                                                        cand_names = [tee.get('tee_name') or '' for _, tee in candidates]
+                                                        logger.info(f"find_yardage_recursive: fallback candidates={cand_names} preferred={preferred_tee!r}")
                                                     except Exception:
                                                         pass
+                                                    for group, tee in candidates:
+                                                        tn = (tee.get('tee_name') or '')
+                                                        holes = tee.get('holes')
+                                                        if _tee_matches(preferred_tee, tn):
+                                                            extracted = _extract_from_holes(holes, hole_idx)
+                                                            if extracted:
+                                                                yv, pv = extracted
+                                                                try:
+                                                                    logger.info(f"find_yardage_recursive: fallback match preferred={preferred_tee!r} matched_tee={tn!r}")
+                                                                except Exception:
+                                                                    pass
+                                                                return (yv, pv, tn)
 
-                                                for item in obj:
-                                                    res = find_yardage_recursive(item, hole, preferred_tee)
-                                                    if res is not None:
-                                                        return res
-                                                return None
+                                                # No preferred match: return first available tee hole
+                                                for group, tee in candidates:
+                                                    holes = tee.get('holes')
+                                                    extracted = _extract_from_holes(holes, hole_idx)
+                                                    if extracted:
+                                                        yv, pv = extracted
+                                                        return (yv, pv, f"{group}.{(tee.get('tee_name') or '')}")
+
+                                            # If obj directly contains 'holes' list
+                                            if 'holes' in obj and isinstance(obj.get('holes'), list):
+                                                holes = obj.get('holes')
+                                                idx = int(hole) - 1
+                                                extracted = None
+                                                if 0 <= idx < len(holes):
+                                                    he = holes[idx]
+                                                    y = he.get('yardage') or he.get('yards') or he.get('length')
+                                                    p = he.get('par') or he.get('par_value') or he.get('par_total')
+                                                    if y is not None:
+                                                        try:
+                                                            p_val = int(p) if p is not None else None
+                                                        except Exception:
+                                                            p_val = None
+                                                        return (int(y), p_val, None)
+
+                                            # Heuristics: numeric hole field
+                                            possible_num = None
+                                            for k in ('number', 'hole', 'hole_number'):
+                                                if k in obj:
+                                                    possible_num = obj.get(k)
+                                                    break
+                                            if possible_num is not None:
+                                                try:
+                                                    if int(possible_num) == int(hole):
+                                                        for yk in ('yardage', 'yards', 'length', 'tee_yards'):
+                                                            if yk in obj and obj.get(yk) is not None:
+                                                                try:
+                                                                    yv = int(obj.get(yk))
+                                                                    p = obj.get('par') or obj.get('par_value') or obj.get('par_total')
+                                                                    try:
+                                                                        p_val = int(p) if p is not None else None
+                                                                    except Exception:
+                                                                        p_val = None
+                                                                    return (yv, p_val, None)
+                                                                except Exception:
+                                                                    pass
+                                                except Exception:
+                                                    pass
+
+                                            # Recurse into dict values
+                                            for v in obj.values():
+                                                res = find_yardage_recursive(v, hole, preferred_tee)
+                                                if res is not None:
+                                                    return res
+                                            return None
 
                                         except Exception:
                                             return None
@@ -1161,14 +1833,87 @@ def analyze_upload(request):
                         thread.start()
                 except Exception:
                     logger.exception('Failed to start background processing for analysis %s', getattr(analysis, 'pk', 'unknown'))
-
+            try:
+                logger.info(f"analyze_upload: created analyses pks={created_pks}")
+            except Exception:
+                pass
             messages.success(request, f'{len(created_pks)} video(s) uploaded successfully! Processing has started.')
             try:
-                if round_obj:
+                # Prefer redirecting to the round page if we attached these analyses to a round.
+                # Use getattr to avoid referencing an undefined name in any code path.
+                if 'round_obj' in locals() and getattr(round_obj, 'pk', None):
+                    try:
+                        logger.info(f"analyze_upload: redirecting to round_holes round_pk={round_obj.pk}")
+                    except Exception:
+                        pass
                     return redirect('shots:round_holes', round_pk=round_obj.pk)
             except Exception:
                 pass
             return redirect('shots:shot_list')
+        else:
+            try:
+                logger.warning(f"analyze_upload: form.is_valid() == False, errors={form.errors}")
+            except Exception:
+                pass
+            # Build helpful debug context similar to GET so the template can surface errors and posted keys
+            rounds = []
+            try:
+                from .models import ShotRound
+                rounds = ShotRound.objects.filter(user_id=getattr(request.user, 'pk', None)).order_by('-played_at', '-created_at')[:50]
+            except Exception:
+                rounds = []
+
+            all_rounds = []
+            try:
+                from .models import ShotRound
+                all_rounds = list(ShotRound.objects.all().values('pk', 'user_id', 'name', 'played_at'))
+            except Exception:
+                all_rounds = []
+
+            db_path = None
+            try:
+                db_path = settings.DATABASES.get('default', {}).get('NAME')
+            except Exception:
+                db_path = None
+            request_user_info = {'pk': getattr(request.user, 'pk', None), 'is_authenticated': getattr(request.user, 'is_authenticated', False), 'repr': repr(request.user)}
+
+            # Prefetch tees if possible (same logic as GET path) to keep the UI similar
+            prefetched_tee_names = []
+            try:
+                api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+                course_query = request.POST.get('course') or request.GET.get('course')
+                if api_key and course_query:
+                    api_url = 'https://api.golfcourseapi.com/v1/search'
+                    resp = requests.get(api_url, params={'search_query': course_query}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
+                    if resp.status_code == 200:
+                        payload = resp.json()
+                        data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                        courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                        if isinstance(courses, list):
+                            for c in courses:
+                                tees = c.get('tees') if isinstance(c, dict) else None
+                                if isinstance(tees, dict):
+                                    for arr in tees.values():
+                                        if isinstance(arr, list):
+                                            for t in arr:
+                                                try:
+                                                    name = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                    if name:
+                                                        prefetched_tee_names.append(name)
+                                                except Exception:
+                                                    pass
+            except Exception:
+                prefetched_tee_names = []
+
+            seen = set()
+            ordered = []
+            for n in prefetched_tee_names:
+                if n and n not in seen:
+                    seen.add(n)
+                    ordered.append(n)
+
+            context = {'form': form, 'rounds': rounds, 'all_rounds': all_rounds, 'db_path': db_path, 'request_user_info': request_user_info, 'prefetched_tee_names': ordered, 'form_errors': str(form.errors), 'posted_keys': list(request.POST.keys())}
+            return render(request, 'shots/analyze_form.html', context)
     else:
         form = ShotAnalysisForm()
 
@@ -1201,4 +1946,66 @@ def analyze_upload(request):
         db_path = None
     request_user_info = {'pk': getattr(request.user, 'pk', None), 'is_authenticated': getattr(request.user, 'is_authenticated', False), 'repr': repr(request.user)}
 
-    return render(request, 'shots/analyze_form.html', {'form': form, 'rounds': rounds, 'all_rounds': all_rounds, 'db_path': db_path, 'request_user_info': request_user_info})
+    # Server-side prefetch of tee names (fallback in case client cannot fetch API)
+    prefetched_tee_names = []
+    try:
+        api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
+        course_query = None
+        # If page was rendered with a fixed course, use it; otherwise leave to client
+        if 'fixed_course_obj' in locals() and getattr(locals().get('fixed_course_obj'), 'name', None):
+            course_query = locals().get('fixed_course_obj').name
+        else:
+            # try to use a recently suggested course from session or query params
+            from django.http import HttpRequest
+            try:
+                course_query = form.initial.get('course') if hasattr(form, 'initial') else None
+            except Exception:
+                course_query = None
+
+        # Allow override from query params for testing and prefill flows
+        try:
+            if not course_query:
+                course_query = request.GET.get('course')
+        except Exception:
+            pass
+
+        if api_key and course_query:
+            try:
+                api_url = 'https://api.golfcourseapi.com/v1/search'
+                resp = requests.get(api_url, params={'search_query': course_query}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    # Extract tee names from payload.courses[*].tees.*[].tee_name
+                    try:
+                        data = payload.get('data') if isinstance(payload, dict) and 'data' in payload else payload
+                        courses = data.get('courses') if isinstance(data, dict) and 'courses' in data else (data if isinstance(data, list) else [])
+                        if isinstance(courses, list):
+                            for c in courses:
+                                tees = c.get('tees') if isinstance(c, dict) else None
+                                if isinstance(tees, dict):
+                                    for arr in tees.values():
+                                        if isinstance(arr, list):
+                                            for t in arr:
+                                                try:
+                                                    name = t.get('tee_name') or t.get('teeName') or t.get('name')
+                                                    if name:
+                                                        prefetched_tee_names.append(name)
+                                                except Exception:
+                                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    except Exception:
+        prefetched_tee_names = []
+
+    # Deduplicate while preserving order
+    seen = set()
+    ordered = []
+    for n in prefetched_tee_names:
+        if n and n not in seen:
+            seen.add(n)
+            ordered.append(n)
+
+    return render(request, 'shots/analyze_form.html', {'form': form, 'rounds': rounds, 'all_rounds': all_rounds, 'db_path': db_path, 'request_user_info': request_user_info, 'prefetched_tee_names': ordered})
