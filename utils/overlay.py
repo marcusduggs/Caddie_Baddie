@@ -18,6 +18,24 @@ from urllib.error import URLError, HTTPError
 # Set up logging
 logger = logging.getLogger(__name__)
 
+
+def _is_valid_file(path):
+    """Return True if path is a non-empty string/Path-like and exists as a file."""
+    if not path:
+        return False
+    # Accept Path objects and bytes as well
+    if isinstance(path, (bytes, os.PathLike)):
+        try:
+            path = str(path)
+        except Exception:
+            return False
+    if not isinstance(path, (str,)):
+        return False
+    try:
+        return os.path.isfile(path)
+    except Exception:
+        return False
+
 def _resolve_binary(name: str):
     """Resolve a binary by name, trying PATH first, then common Homebrew locations."""
     # Try PATH
@@ -232,7 +250,8 @@ def _fetch_mapbox_static_image(lon, lat, output_path, width=500, height=600, zoo
 
 
 def process_video_with_overlay(input_path: str, output_path: str, overlay_path: str = None,
-                               course_name: str = None, hole_number: int = None, hole_yardage: int = None, club: str = None, hole_par: int = None):
+                               course_name: str = None, hole_number: int = None, hole_yardage: int = None, club: str = None, hole_par: int = None,
+                               overlay_map_requested: bool = True, include_course_text: bool = True):
     """
     Process a golf video by overlaying a map image in the bottom-right corner.
     
@@ -258,9 +277,9 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
     if not os.path.isfile(input_path):
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
-    # Determine overlay image to use
-    use_dynamic_map = overlay_path is None
+    # Determine overlay image to use (only if user opted in for map overlay)
     temp_map_path = None
+    use_dynamic_map = overlay_map_requested and overlay_path is None
     
     if use_dynamic_map:
         print("\n" + "="*60)
@@ -292,14 +311,19 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
             overlay_path = None
     
     # Fallback to static map if needed
-    if overlay_path is None:
-        project_root = Path(settings.BASE_DIR)
-        overlay_path = str(project_root / "test_map.png")
-        print(f"[Fallback] Using static map: {overlay_path}")
+    if overlay_map_requested:
+        if not _is_valid_file(overlay_path):
+            project_root = Path(settings.BASE_DIR)
+            overlay_path = str(project_root / "test_map.png")
+            print(f"[Fallback] Using static map: {overlay_path}")
+    else:
+        # When map overlay is not requested, ensure overlay_path remains None
+        overlay_path = None
     
-    # Validate overlay image exists
-    if not os.path.isfile(overlay_path):
-        raise FileNotFoundError(f"Overlay image not found: {overlay_path}")
+    # Validate overlay image exists (only when a map overlay is requested)
+    if overlay_map_requested:
+        if not _is_valid_file(overlay_path):
+            raise FileNotFoundError(f"Overlay image not found: {overlay_path}")
 
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -312,14 +336,16 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
     # Probe video width and calculate overlay size (30% of video width)
     vwidth = _probe_width(input_path) or 1280
     overlay_w = max(64, int(vwidth * 0.30))
+    # Build ffmpeg filter depending on whether map overlay is requested
+    if overlay_map_requested and overlay_path:
+        base_overlay = f"[1:v]scale={overlay_w}:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10"
+    else:
+        base_overlay = "[0:v]null"  # placeholder when no map overlay; drawtext_filter may still be applied
 
-    # Build ffmpeg filter: scale overlay, keep aspect ratio, then overlay bottom-right with 10px margin
-    base_overlay = f"[1:v]scale={overlay_w}:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10"
-
-    # If course/hole text provided, append a drawtext filter to burn text into the video (top-left)
+    # If course/hole text requested and provided, append a drawtext filter to burn text into the video (top-left)
     drawtext_filter = ""
     temp_text_files = []
-    if course_name or hole_number or hole_yardage or club:
+    if include_course_text and (course_name or hole_number or hole_yardage or club):
         # Compose the individual text parts so we can style them separately:
         # part_course (prominent), part_main (Hole X — Y yards), part_par (Par N), part_club
         def _sanitize(s: str) -> str:
@@ -371,6 +397,10 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
         pad_x = 18
         pad_y = 14
 
+        # Build font argument for ffmpeg drawtext. Define here so it's available
+        # even when the course/top line (tf_course) is not present.
+        font_arg = f"fontfile={fontfile}:" if fontfile else ""
+
         # Create temp text files for each visible part (useful to avoid escaping issues)
         def _write_temp(text, suffix):
             if not text:
@@ -405,7 +435,6 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
         # course (top)
         if tf_course:
             y_course = box_y + pad_y
-            font_arg = f"fontfile={fontfile}:" if fontfile else ""
             drawtexts.append(f"drawtext={font_arg}textfile={str(tf_course)}:reload=0:fontcolor=white:fontsize={fontsize_course}:x={box_x+pad_x}:y={y_course}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
             y_next = y_course + fontsize_course + 6
         else:
@@ -432,22 +461,36 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
         # Combine drawbox + drawtexts into drawtext_filter (comma-separated)
         drawtext_filter = drawbox + ("," + ",".join(drawtexts) if drawtexts else "")
 
+    # If no map overlay and no drawtext, simply copy the file to output
+    if not overlay_map_requested and not include_course_text:
+        # Quick path: copy file
+        try:
+            shutil.copyfile(input_path, output_path)
+            try:
+                os.chmod(output_path, 0o644)
+            except Exception:
+                pass
+            print(f"[Success] Copied video without overlays to: {output_path}")
+            return str(output_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to copy input to output when overlays disabled: {e}")
+
     filter_complex = base_overlay + ("," + drawtext_filter if drawtext_filter else "")
 
     print(f"[FFmpeg] Processing video with overlay...")
     
     # Build ffmpeg command
-    cmd = [
-        FFMPEG_PATH, "-y",
-        "-i", input_path,
-        "-i", overlay_path,
-        "-filter_complex", filter_complex,
-        "-map", "0:a?",   # copy audio if present
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        output_path
-    ]
+    # Build ffmpeg command: include overlay image input only when requested
+    cmd = [FFMPEG_PATH, "-y"]
+    cmd += ["-i", input_path]
+    if overlay_map_requested and overlay_path:
+        cmd += ["-i", overlay_path]
+    cmd += ["-filter_complex", filter_complex]
+    cmd += ["-map", "0:a?",   # copy audio if present
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            output_path]
 
     # Run ffmpeg
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

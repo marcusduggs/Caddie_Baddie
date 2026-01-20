@@ -6,7 +6,7 @@
   <div class="max-w-6xl mx-auto">
     <h2 class="text-3xl font-bold mb-6">📊 Shot Analysis #{{ analysis.id }}</h2>
     
-    <div class="mb-6 flex flex-wrap gap-2">
+    <div class="mb-6 flex flex-wrap gap-2"
       <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
         📹 Upload New Video
       </a>
@@ -157,6 +157,37 @@
       {% endif %}
     </div>
 
+    <!-- Overlayed pose wireframe (if requested) -->
+    <div id="overlay-section" class="mt-6">
+      {% if analysis.overlay_requested %}
+        <div id="overlay-state" class="bg-white shadow-md rounded-lg p-6">
+          <!-- Pose overlay header removed per user request -->
+          <div id="overlay-progress" class="mb-4">
+            {% if analysis.overlay_status == 'completed' and analysis.overlayed_video %}
+              <p class="text-sm text-green-700">Overlay ready ✅</p>
+            {% elif analysis.overlay_status == 'failed' %}
+              <p class="text-sm text-red-700">Overlay generation failed: {{ analysis.overlay_error_message }}</p>
+            {% else %}
+              <p class="text-sm text-blue-700">Overlay is being generated — this may take an extra minute.</p>
+            {% endif %}
+          </div>
+
+          <div id="overlay-player">
+            {% if analysis.overlay_status == 'completed' and analysis.overlayed_video %}
+              <video controls playsinline class="w-full rounded-lg shadow-lg">
+                <source src="{{ analysis.overlayed_video.url }}" type="video/mp4">
+                Your browser does not support the video tag.
+              </video>
+            {% elif analysis.overlay_status == 'failed' %}
+              <div class="text-sm text-red-600">Overlay failed — please try reprocessing later.</div>
+            {% else %}
+              <div class="text-sm text-gray-600">Waiting for overlay...</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
     <!-- Back Button -->
     <div class="mt-8">
       <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-lg">
@@ -179,4 +210,46 @@
       }
     }
   </style>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    (function(){
+      try {
+        const overlayRequested = "{{ analysis.overlay_requested|yesno:'true,false' }}" === 'true';
+        if (!overlayRequested) return;
+        const analysisPk = parseInt("{{ analysis.pk }}", 10) || null;
+        const statusUrl = new URL('{% url "shots:overlay_status" analysis.pk %}', window.location.origin).toString();
+        let polling = true;
+        async function poll() {
+          try {
+            const resp = await fetch(statusUrl, { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const st = data.overlay_status || 'pending';
+            const err = data.overlay_error || '';
+            const progress = document.getElementById('overlay-progress');
+            const player = document.getElementById('overlay-player');
+            if (st === 'completed') {
+              // reload the page to fetch the new overlayed video URL
+              location.reload();
+              polling = false;
+              return;
+            } else if (st === 'failed') {
+              if (progress) progress.innerHTML = `<p class="text-sm text-red-700">Overlay generation failed: ${err}</p>`;
+              if (player) player.innerHTML = `<div class="text-sm text-red-600">Overlay failed — please try reprocessing later.</div>`;
+              polling = false;
+              return;
+            } else {
+              if (progress) progress.innerHTML = `<p class="text-sm text-blue-700">Overlay is being generated — this may take an extra minute. Status: ${st}</p>`;
+            }
+          } catch (e) {
+            // ignore network errors silently
+          }
+          if (polling) setTimeout(poll, 3000);
+        }
+        setTimeout(poll, 800);
+      } catch (e) {}
+    })();
+  </script>
 {% endblock %}

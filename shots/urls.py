@@ -11,6 +11,7 @@ urlpatterns = [
     path('shots/new/', views.create_shot, name='create_shot'),
     path('analyze/', views.analyze_upload, name='analyze_upload'),
     path('analyze/<int:pk>/', views.analysis_detail, name='analysis_detail'),
+    path('analysis/<int:pk>/overlay-status/', views.overlay_status, name='overlay_status'),
     path('upload-shot/', views.upload_shot, name='upload_shot'),
     path('shots/<int:pk>/delete/', views.delete_shot, name='delete_shot'),
     path('shots/<int:pk>/toggle-favorite/', views.toggle_favorite, name='toggle_favorite'),
@@ -32,6 +33,7 @@ urlpatterns = [
     path('rounds/<slug:course_slug>/', views.rounds_list, name='rounds_list_for_course'),
     path('round/<int:round_pk>/holes/', views.round_holes, name='round_holes'),
     path('round/<int:round_pk>/hole/<int:hole>/shots/', views.round_hole_shots, name='round_hole_shots'),
+    path('round/<int:round_pk>/hole/<int:hole>/delete/', views.delete_round_hole, name='delete_round_hole'),
     path('round/<int:round_pk>/delete/', views.delete_round, name='delete_round'),
     path('courses/<int:pk>/delete/', views.delete_course, name='delete_course'),
 ]

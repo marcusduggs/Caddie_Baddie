@@ -23,8 +23,7 @@ def process_video_with_overlay(input_path: str, output_path: str, overlay_path: 
     """
     if not os.path.isfile(input_path):
         raise FileNotFoundError(f"Input not found: {input_path}")
-
-    if not os.path.isfile(overlay_path):
+    if not overlay_path or not os.path.isfile(overlay_path):
         raise FileNotFoundError(f"Overlay image not found: {overlay_path}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

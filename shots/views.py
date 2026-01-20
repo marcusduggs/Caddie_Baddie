@@ -27,12 +27,14 @@ from django.conf import settings
 from .forms import ShotAnalysisForm
 from .models import ShotAnalysis
 from .models import CourseMetadata
+from .models import ShotRound
 from django.core.files import File
 import shutil
 from django.utils.text import slugify
 import subprocess
 import uuid
 from utils.overlay import process_video_with_overlay, FFMPEG_PATH
+from .video_processing import render_pose_wireframe
 import threading
 import requests
 import urllib.parse
@@ -163,12 +165,82 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
         logger.info(f"Background processing started for analysis {analysis_pk}: {input_path} -> {output_path}")
 
         # Run the overlay processing (wrap any exceptions)
-        process_video_with_overlay(input_path, output_path, None, sa.course_name, sa.hole_number, sa.hole_yardage, sa.club, hole_par=hole_par)
+        try:
+            process_video_with_overlay(
+                input_path,
+                output_path,
+                None,
+                sa.course_name,
+                sa.hole_number,
+                sa.hole_yardage,
+                sa.club,
+                hole_par=hole_par,
+                overlay_map_requested=getattr(sa, 'include_map', False),
+                include_course_text=getattr(sa, 'include_course_text', False)
+            )
+        except Exception as e:
+            logger.exception('Overlay/map processing failed for analysis %s', analysis_pk)
+            sa.status = 'failed'
+            sa.error_message = f'Overlay processing failed: {e}'
+            sa.save()
+            return
 
         # Attach processed file to model
         if os.path.exists(output_path):
             with open(output_path, 'rb') as f:
                 sa.processed_video.save(os.path.basename(output_path), File(f), save=False)
+
+        # If user requested a pose overlay, render it onto the processed video file
+        # We render to a temporary file first, then replace the processed_video with
+        # the overlayed result so the user sees a single processed video (no separate
+        # overlayed_video file).
+        if getattr(sa, 'overlay_requested', False):
+            sa.overlay_status = 'overlaying'
+            sa.save()
+            try:
+                from .video_processing import render_pose_wireframe
+                import tempfile
+                fd, overlay_tmp = tempfile.mkstemp(suffix='.mp4')
+                os.close(fd)
+                try:
+                    overlay_path = render_pose_wireframe(output_path, output_path=overlay_tmp)
+                    if overlay_path and os.path.exists(overlay_path):
+                        # Only attach the overlayed file if it is non-empty. Some renderer
+                        # failures leave an empty file behind; we must avoid overwriting
+                        # a valid processed video with a zero-byte file.
+                        try:
+                            if os.path.getsize(overlay_path) > 0:
+                                with open(overlay_path, 'rb') as ofp:
+                                    # Use the same filename as the original processed output so URLs remain stable.
+                                    sa.processed_video.save(os.path.basename(output_path), File(ofp), save=False)
+                                sa.overlay_status = 'completed'
+                                sa.overlay_error_message = ''
+                            else:
+                                sa.overlay_status = 'failed'
+                                sa.overlay_error_message = 'Overlay renderer produced an empty file; processed video preserved.'
+                        except Exception as e:
+                            sa.overlay_status = 'failed'
+                            sa.overlay_error_message = f'Failed to attach overlayed file: {e}'
+                    else:
+                        sa.overlay_status = 'failed'
+                        sa.overlay_error_message = 'Overlay renderer did not produce output.'
+                except Exception as e:
+                    sa.overlay_status = 'failed'
+                    sa.overlay_error_message = str(e)
+                finally:
+                    try:
+                        if os.path.exists(overlay_tmp):
+                            os.remove(overlay_tmp)
+                    except Exception:
+                        pass
+            except Exception as e:
+                sa.overlay_status = 'failed'
+                sa.overlay_error_message = str(e)
+            finally:
+                try:
+                    sa.save()
+                except Exception:
+                    pass
         # Persist hole_par to the DB in case it was provided transiently
         try:
             if hole_par is not None:
@@ -189,6 +261,47 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
             sa.save()
         except Exception:
             logger.exception('Failed to save ShotAnalysis after processing error')
+
+
+@login_required
+def delete_round_hole(request, round_pk, hole):
+    """Delete all ShotAnalysis records for a given round and hole.
+
+    This deletes associated media files (input, processed, overlay, thumbnail) and
+    removes the database records. Only the user who owns the round (or staff) may delete.
+    """
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    sr = get_object_or_404(ShotRound, pk=round_pk)
+    # Basic permission: only the round owner can delete
+    if sr.user != request.user and not request.user.is_staff:
+        messages.error(request, 'You do not have permission to delete this hole.')
+        return redirect('shots:round_holes', round_pk=round_pk)
+
+    # Find analyses for this round/hole
+    analyses = ShotAnalysis.objects.filter(round=sr, hole_number=hole)
+    deleted = 0
+    for a in analyses:
+        # delete files if present
+        try:
+            for f in ('input_video', 'processed_video', 'overlayed_video', 'thumbnail'):
+                ff = getattr(a, f, None)
+                if ff and ff.name:
+                    try:
+                        path = ff.path
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except Exception:
+                        # best-effort file removal
+                        pass
+        except Exception:
+            pass
+        a.delete()
+        deleted += 1
+
+    messages.success(request, f'Deleted {deleted} shot(s) for hole {hole}.')
+    return redirect('shots:round_holes', round_pk=round_pk)
 
 
 def home(request):
@@ -333,12 +446,33 @@ def analyze_upload(request):
                         import logging
                         logger = logging.getLogger(__name__)
                         logger.info(f"Starting video processing: {input_path} -> {output_path}")
-                        
-                        process_video_with_overlay(input_path, output_path)
-                        
+
+                        # If the user requested a pose overlay, run the renderer first
+                        try:
+                            overlay_requested = bool(request.POST.get('overlay_pose'))
+                        except Exception:
+                            overlay_requested = False
+                        processed_input = input_path
+                        if overlay_requested:
+                            try:
+                                logger.info(f"Generating pose overlay for: {input_path}")
+                                overlay_path = render_pose_wireframe(input_path)
+                                if overlay_path and os.path.exists(overlay_path):
+                                    processed_input = overlay_path
+                                    logger.info(f"Pose overlay written to: {overlay_path}")
+                            except Exception as e:
+                                logger.exception('Pose overlay generation failed, continuing without overlay')
+
+                        process_video_with_overlay(processed_input, output_path)
+
                         logger.info(f"Video processing completed: {output_path}")
                         
-                        # Save the processed video to the model
+                        # Record overlay preference and save processed video to the model
+                        try:
+                            analysis.overlay_requested = overlay_requested
+                            analysis.overlay_status = 'pending'
+                        except Exception:
+                            pass
                         with open(output_path, 'rb') as f:
                             analysis.processed_video.save(output_filename, File(f), save=False)
                         
@@ -492,6 +626,17 @@ def analysis_detail(request, pk):
             overlay_info['par'] = par
 
     return render(request, 'shots/analysis_detail.html', {'analysis': analysis, 'overlay_info': overlay_info})
+
+
+from django.http import JsonResponse
+
+@login_required
+def overlay_status(request, pk):
+    """Return JSON with overlay status for a ShotAnalysis (used for frontend polling)."""
+    sa = get_object_or_404(ShotAnalysis, pk=pk)
+    if sa.user != request.user:
+        return JsonResponse({'error': 'forbidden'}, status=403)
+    return JsonResponse({'overlay_status': sa.overlay_status or 'pending', 'overlay_error': sa.overlay_error_message or ''})
 
 
 from django.contrib.auth.decorators import login_required
@@ -1284,12 +1429,16 @@ def analyze_upload(request):
     the frontend overlay can show them immediately.
     """
     if request.method == 'POST':
+        # Respect user opt-in for map/text overlays
+        include_map = bool(request.POST.get('include_map'))
+        include_text = bool(request.POST.get('include_course_text'))
+
         # Ensure the bound form accepts dynamic tee names returned by the Golf Course API
-        course_candidate = request.POST.get('course') or request.GET.get('course')
+        course_candidate = (request.POST.get('course') or request.GET.get('course')) if include_map else None
         prefetched_tee_names = []
         try:
             api_key = GOLF_COURSE_API_KEY_HARDCODED or os.environ.get('GOLF_COURSE_API_KEY')
-            if api_key and course_candidate:
+            if include_map and api_key and course_candidate:
                 api_url = 'https://api.golfcourseapi.com/v1/search'
                 resp = requests.get(api_url, params={'search_query': course_candidate}, headers={'Authorization': f'Key {api_key}'}, timeout=6)
                 if resp.status_code == 200:
@@ -1794,6 +1943,15 @@ def analyze_upload(request):
                     analysis.hole_par = par
                 if used_tee:
                     analysis.used_tee = used_tee
+
+                # Persist whether the user requested a pose overlay for this analysis
+                try:
+                    analysis.overlay_requested = bool(request.POST.get('overlay_pose'))
+                    analysis.include_map = bool(request.POST.get('include_map'))
+                    analysis.include_course_text = bool(request.POST.get('include_course_text'))
+                    analysis.overlay_status = 'pending'
+                except Exception:
+                    pass
 
                 analysis.save()
 

@@ -25,6 +25,10 @@
             <div class="mt-3 flex items-center gap-4">
               <a href="{% url 'shots:round_hole_shots' round.pk h.hole %}" class="text-sm text-blue-600 hover:underline">View shots</a>
               <a href="{% url 'shots:analyze_upload' %}?round_id={{ round.pk }}&hole={{ h.hole }}&course={{ round.course_name|urlencode }}" class="text-sm text-gray-600 hover:underline">Upload to this hole</a>
+              <form method="post" action="{% url 'shots:delete_round_hole' round.pk h.hole %}" class="inline-block">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-red-600 hover:underline" onclick="return confirm('Delete all shots for hole {{ h.hole }}? This cannot be undone.');">Delete hole</button>
+              </form>
             </div>
           </div>
         {% endfor %}

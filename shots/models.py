@@ -31,6 +31,8 @@ class ShotAnalysis(models.Model):
     distance = models.FloatField()
     input_video = models.FileField(upload_to='input/')
     processed_video = models.FileField(upload_to='output/', null=True, blank=True)
+    # Pose-wireframe overlay output (kept separate so both variants are available)
+    overlayed_video = models.FileField(upload_to='overlayed/', null=True, blank=True)
     # Allow null for safety when external scripts create records without setting status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='uploading', null=True, blank=True)
     error_message = models.TextField(blank=True, null=True)
@@ -45,6 +47,20 @@ class ShotAnalysis(models.Model):
     # Optional: user-selected tee (e.g. 'Blue', 'White', 'Gold') and the tee actually used
     selected_tee = models.CharField(max_length=64, blank=True, null=True)
     used_tee = models.CharField(max_length=128, blank=True, null=True)
+    # Whether the user requested a pose-wireframe overlay for this analysis
+    overlay_requested = models.BooleanField(default=False)
+    # Whether the user opted in to include the course map overlay (API)
+    include_map = models.BooleanField(default=False)
+    # Whether the user opted in to burn course/hole text into the processed video
+    include_course_text = models.BooleanField(default=False)
+    OVERLAY_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('overlaying', 'Overlaying'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    overlay_status = models.CharField(max_length=20, choices=OVERLAY_STATUS_CHOICES, default='pending')
+    overlay_error_message = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Assigned stroke order based on video capture time (1 = oldest)
