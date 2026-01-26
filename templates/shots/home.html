@@ -9,8 +9,40 @@
       <span class="text-2xl font-bold tracking-wide text-[#22223b]">CADDIE BADDIE</span>
     </div>
     <div class="flex gap-8 text-lg font-medium">
+  <button id="version-notes-btn" class="ml-4 bg-gray-800 text-white px-5 py-2 rounded-lg shadow hover:bg-gray-700 transition">Version Notes</button>
+  <!-- Version Notes Modal -->
+  <div id="version-notes-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg max-w-3xl w-11/12 p-6 mx-4">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-2xl font-bold">Version Notes v11</h3>
+        <button id="version-notes-close" class="text-gray-600 hover:text-gray-900">Close</button>
+      </div>
+      <div class="space-y-4 text-gray-800">
+        <p class="font-semibold">What Caddie Baddie does</p>
+        <ul class="list-disc ml-6">
+          <li>Upload swing videos and extract GPS metadata to track shots.</li>
+          <li>Analyze videos on the server to compute shot distances and overlays.</li>
+          <li>Visualize shots on a Mapbox-powered hole map with draggable pin support.</li>
+          <li>Persist hole pins per-user and recompute distances server-side using haversine math.</li>
+          <li>Share and favorite shots, and group shots into rounds and courses.</li>
+        </ul>
+
+        <p class="font-semibold">Changes since last saved version</p>
+        <ul class="list-disc ml-6">
+          <li>Added a server-side "Save Pin" flow that persists a per-user hole pin and recomputes all shot distances for the hole.</li>
+          <li>Shot distance recomputation now orders shots chronologically (oldest → newest) using stroke numbers, probe timestamps, or client timestamps.</li>
+          <li>Implemented a light in-memory smoothing pass to mitigate GPS outliers so putts and short shots calculate sensibly.</li>
+          <li>Expose per-shot diagnostics in the Save Pin API response to help debug origin/landing pairings and computed yardages.</li>
+          <li>Updated the hole map UI to include an "Unlock Pin" action that makes the pin draggable and a Save button that posts the selected pin to the server.</li>
+          <li>Fixed ordering and persistence issues and added migration for the HolePin model.</li>
+        </ul>
+
+        
+      </div>
+    </div>
+  </div>
   <a href="{% url 'shots:add_course' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Add Course</a>
-  <a href="{% url 'shots:courses_list' %}" class="ml-4 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition">View My Courses</a>
+  <a href="{% url 'shots:home' %}?from_home=1" class="ml-4 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition">View My Courses</a>
   <a href="{% url 'shots:shot_list' %}" class="ml-4 bg-[#264653] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Favorite Shots</a>
   {% if not user.is_authenticated %}
     <a href="/accounts/login/" class="ml-4 bg-[#22223b] text-white px-5 py-2 rounded-lg shadow hover:bg-[#3a86ff] transition">Log In</a>
@@ -48,4 +80,16 @@
 <footer class="mt-16 py-8 text-center text-[#22223b] text-base bg-[#22223b] bg-opacity-5 rounded-t-2xl">
   <p class="font-medium">© 2025 Caddie Baddie. All rights reserved.</p>
 </footer>
+<script>
+  (function(){
+    var btn = document.getElementById('version-notes-btn');
+    var modal = document.getElementById('version-notes-modal');
+    var close = document.getElementById('version-notes-close');
+    if(!btn || !modal) return;
+    btn.addEventListener('click', function(){ modal.classList.remove('hidden'); modal.classList.add('flex'); });
+    if(close) close.addEventListener('click', function(){ modal.classList.remove('flex'); modal.classList.add('hidden'); });
+    // close when clicking outside the modal content
+    modal.addEventListener('click', function(e){ if(e.target === modal){ modal.classList.remove('flex'); modal.classList.add('hidden'); } });
+  })();
+</script>
 {% endblock %}

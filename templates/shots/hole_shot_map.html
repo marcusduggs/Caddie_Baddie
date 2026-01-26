@@ -1,0 +1,307 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-6xl mx-auto px-6 py-8">
+    <h2 class="text-2xl font-semibold mb-4">Hole {{ hole }} — Shot Map</h2>
+
+    {% if not MAPBOX_TOKEN %}
+      <div class="bg-yellow-50 border border-yellow-200 p-4 rounded">Mapbox token not configured. Map preview unavailable.</div>
+    {% else %}
+      {% if shots|length == 0 %}
+        <div class="bg-white p-6 rounded border border-gray-100">No shots recorded for this hole yet.</div>
+      {% else %}
+        <div class="mb-3">
+          <button id="save-pin-btn" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">Save Pin Location</button>
+          <button id="unlock-pin-btn" class="inline-block ml-2 bg-yellow-400 text-white px-3 py-2 rounded-lg hover:bg-yellow-500 transition">Unlock Pin</button>
+          <span id="pin-status" class="ml-3 text-sm text-gray-600">{% if hole_pin %}Pin locked{% else %}Pin unlocked{% endif %}</span>
+        </div>
+        <div id="map" style="width:100%;height:600px;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb"></div>
+      {% endif %}
+    {% endif %}
+
+    <div class="mt-4">
+      <a href="{% url 'shots:hole_shots' course_slug=course_slug hole=hole %}" class="text-blue-600 hover:underline">← Back to hole</a>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  {% if MAPBOX_TOKEN and shots|length > 0 %}
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <script>
+      (function(){
+        try {
+          mapboxgl.accessToken = '{{ MAPBOX_TOKEN }}';
+          const shots = JSON.parse('{{ shots_json|escapejs }}');
+          if (!Array.isArray(shots) || shots.length === 0) return;
+
+          // Hole number provided by Django as a numeric literal
+          const holeNum = {{ hole|default:0 }};
+
+          const coords = shots.map(s => [s.lng, s.lat]);
+          const first = coords[0];
+
+          const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: first,
+            zoom: 15
+          });
+
+          map.on('load', function(){
+            // Add markers and popups
+            shots.forEach(function(s, idx){
+              // Use a DOM element for the marker so we can show the shot number
+              const el = document.createElement('div');
+              el.style.background = (idx === 0) ? '#1f77b4' : '#e63946';
+              el.style.color = 'white';
+              el.style.width = '28px';
+              el.style.height = '28px';
+              el.style.borderRadius = '16px';
+              el.style.display = 'flex';
+              el.style.alignItems = 'center';
+              el.style.justifyContent = 'center';
+              el.style.fontSize = '12px';
+              el.textContent = String(idx + 1);
+              new mapboxgl.Marker(el)
+                .setLngLat([s.lng, s.lat])
+                .setPopup(new mapboxgl.Popup({offset:25}).setText('Shot ' + (idx+1)))
+                .addTo(map);
+            });
+
+            // Draw a line connecting the shots in order
+            map.addSource('shots-line', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: {
+                  type: 'LineString',
+                  coordinates: coords
+                }
+              }
+            });
+
+            map.addLayer({
+              id: 'shots-line-layer',
+              type: 'line',
+              source: 'shots-line',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: { 'line-color': '#1f7ae0', 'line-width': 3 }
+            });
+
+            // Fit map to bounds
+            const bounds = coords.reduce(function(b, coord){ return b.extend(coord); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+            map.fitBounds(bounds, { padding: 40 });
+
+            // Expose userPin and locked state to outer scope
+            let _userPin = null;
+            let _pinLocked = false;
+            // Query the authoritative GET API for the user's saved pin for this hole.
+            // This avoids relying only on template-injected JSON and handles cases
+            // where server persistence may have failed during save. Falls back to
+            // providedPin (template) and then to localStorage if the API call fails.
+            (function(){
+              const providedPin = (function(){ try { return JSON.parse('{{ hole_pin_json|default:"null"|escapejs }}'); } catch(e){ return null; }})();
+              fetch('{% url "shots:api_get_hole_pin" hole_id=hole %}', { credentials: 'same-origin' })
+                .then(function(r){ if (!r.ok) throw new Error('Network'); return r.json(); })
+                .then(function(payload){
+                  try {
+                    if (payload && payload.ok && payload.hole_pin) {
+                      const pin = payload.hole_pin;
+                      console.log('hole_shot_map: fetched api pin', pin);
+                      _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([pin.lng, pin.lat]).addTo(map);
+                      _pinLocked = true;
+                      document.getElementById('pin-status').textContent = 'Pin locked';
+                      const btnx = document.getElementById('save-pin-btn'); if (btnx) btnx.disabled = true;
+                      const unlockBtnInit = document.getElementById('unlock-pin-btn'); if (unlockBtnInit) unlockBtnInit.style.display = 'inline-block';
+                      try { localStorage.setItem('hole_pin_' + String(holeNum), JSON.stringify(pin)); } catch(e){}
+                      return;
+                    }
+                    // No API pin; fall back to template-injected providedPin
+                    if (providedPin) {
+                      console.log('hole_shot_map: using providedPin fallback', providedPin);
+                      _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([providedPin.lng, providedPin.lat]).addTo(map);
+                      _pinLocked = true;
+                      document.getElementById('pin-status').textContent = 'Pin locked';
+                      const btnx = document.getElementById('save-pin-btn'); if (btnx) btnx.disabled = true;
+                      const unlockBtnInit = document.getElementById('unlock-pin-btn'); if (unlockBtnInit) unlockBtnInit.style.display = 'inline-block';
+                      return;
+                    }
+                    // Finally try localStorage fallback
+                    try {
+                      const key = 'hole_pin_' + String(holeNum);
+                      const stored = localStorage.getItem(key);
+                      if (stored) {
+                        const parsed = JSON.parse(stored);
+                        if (parsed && parsed.lat && parsed.lng) {
+                          console.log('hole_shot_map: using localStorage fallback', parsed);
+                          _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([parsed.lng, parsed.lat]).addTo(map);
+                          _pinLocked = true;
+                          document.getElementById('pin-status').textContent = 'Pin locked (local)';
+                          const btnx = document.getElementById('save-pin-btn'); if (btnx) btnx.disabled = true;
+                          const unlockBtnInit = document.getElementById('unlock-pin-btn'); if (unlockBtnInit) unlockBtnInit.style.display = 'inline-block';
+                          return;
+                        }
+                      }
+                    } catch(e) { /* ignore */ }
+                  } catch(e) { console.error('pin load handling failed', e); }
+                }).catch(function(err){
+                  // On network failure fall back to providedPin/localStorage
+                  console.warn('Failed to fetch hole pin via API', err);
+                  try {
+                    if (providedPin) {
+                      _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([providedPin.lng, providedPin.lat]).addTo(map);
+                      _pinLocked = true;
+                      document.getElementById('pin-status').textContent = 'Pin locked';
+                      const btnx = document.getElementById('save-pin-btn'); if (btnx) btnx.disabled = true;
+                      const unlockBtnInit = document.getElementById('unlock-pin-btn'); if (unlockBtnInit) unlockBtnInit.style.display = 'inline-block';
+                      return;
+                    }
+                    const key = 'hole_pin_' + String(holeNum);
+                    const stored = localStorage.getItem(key);
+                    if (stored) {
+                      const parsed = JSON.parse(stored);
+                      if (parsed && parsed.lat && parsed.lng) {
+                        _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([parsed.lng, parsed.lat]).addTo(map);
+                        _pinLocked = true;
+                        document.getElementById('pin-status').textContent = 'Pin locked (local)';
+                        const btnx = document.getElementById('save-pin-btn'); if (btnx) btnx.disabled = true;
+                        const unlockBtnInit = document.getElementById('unlock-pin-btn'); if (unlockBtnInit) unlockBtnInit.style.display = 'inline-block';
+                        return;
+                      }
+                    }
+                  } catch(e) { /* ignore */ }
+                });
+            })();
+
+            // Add interactive click handler only when pin not locked
+              // Note: interactive map clicks are handled below where the landing POST occurs.
+              // We intentionally avoid a lightweight separate click handler here to prevent
+              // duplicate marker creation and double event handling.
+
+            // Save Pin button handler
+            const saveBtn = document.getElementById('save-pin-btn');
+            if (saveBtn) {
+              saveBtn.addEventListener('click', function(){
+                try {
+                  if (! _userPin) { window.alert('Tap the map to place a pin first'); return; }
+                  if (_pinLocked) { window.alert('Pin already locked'); return; }
+                  const lngLat = _userPin.getLngLat();
+                  const lat = lngLat.lat; const lng = lngLat.lng;
+                  // POST to save-pin endpoint
+                  const fd = new FormData(); fd.append('lat', String(lat)); fd.append('lng', String(lng));
+                  fetch('{% url "shots:api_save_hole_pin" hole_id=hole %}', {
+                    method:'POST', credentials:'same-origin', headers: {'X-Requested-With':'XMLHttpRequest','X-CSRFToken':(function(){function getCookie(n){const v=document.cookie.match('(^|;)\\s*'+n+'\\s*=\\s*([^;]+)');return v? v.pop():''} return getCookie('csrftoken');})()}, body: fd
+                  }).then(r=>{ if(!r.ok) throw new Error('Network response not ok'); return r.json(); }).then(function(payload){
+                    if (payload && payload.ok) {
+                              // Use authoritative server pin if provided; otherwise fall back
+                              // to the lat/lng we just posted and persist that as a client fallback
+                              // so the pin remains visible after page reloads even if server
+                              // persistence failed.
+                              try {
+                                const serverPin = payload.hole_pin || null;
+                                let pinToUse = null;
+                                if (serverPin) {
+                                  pinToUse = serverPin;
+                                } else {
+                                  pinToUse = { lat: parseFloat(lat), lng: parseFloat(lng), created_at: new Date().toISOString() };
+                                }
+                                // remove any existing userPin marker and add authoritative one
+                                if (_userPin) { try { _userPin.remove(); } catch(e){} }
+                                _userPin = new mapboxgl.Marker({color:'#2a9d8f', draggable: false}).setLngLat([pinToUse.lng, pinToUse.lat]).addTo(map);
+                                // store a lightweight client fallback so the pin remains visible
+                                try { localStorage.setItem('hole_pin_' + String(holeNum), JSON.stringify(pinToUse)); } catch(e){}
+                                const unlockBtnAfter = document.getElementById('unlock-pin-btn'); if (unlockBtnAfter) unlockBtnAfter.style.display = 'inline-block';
+                              } catch(e) {
+                                console.error('Failed to place saved pin from payload', e);
+                              }
+                              // Lock the pin locally and disable the save button to avoid a reload loop.
+                              _pinLocked = true;
+                              document.getElementById('pin-status').textContent = 'Pin locked';
+                              saveBtn.disabled = true;
+                              // Optionally show a brief success message instead of reloading the page.
+                              const s = document.createElement('span'); s.className = 'ml-3 text-sm text-green-600';
+                              s.textContent = 'Saved ✓';
+                              if (payload && payload.final_distance_yards) {
+                                s.textContent += ' — ' + String(payload.final_distance_yards) + ' yd';
+                              }
+                              if (!document.getElementById('pin-saved-msg')) { s.id = 'pin-saved-msg'; saveBtn.parentNode.appendChild(s); }
+                          } else {
+                      const msg = (payload && payload.error) ? payload.error : 'Failed to save pin'; window.alert(msg);
+                    }
+                  }).catch(function(err){ console.error('save-pin failed', err); window.alert('Failed to save pin.'); });
+                } catch (e) { console.error('save btn err', e); }
+              });
+            }
+
+            // Unlock Pin button handler: allow the user to make the existing locked
+            // pin draggable, move it, then hit Save to persist the new locked location.
+            const unlockBtn = document.getElementById('unlock-pin-btn');
+            if (unlockBtn) {
+              unlockBtn.addEventListener('click', function(){
+                try {
+                  if (! _userPin) { window.alert('No saved pin to unlock'); return; }
+                  if (! _pinLocked) { window.alert('Pin already unlocked'); return; }
+                  // Make the marker draggable so the user can move it
+                  try { _userPin.setDraggable(true); } catch(e) { console.warn('Marker setDraggable not supported', e); }
+                  _pinLocked = false;
+                  // Show instructions and enable the Save button
+                  const status = document.getElementById('pin-status'); if (status) status.textContent = 'Pin unlocked - drag to move, then Save';
+                  const saveBtnLocal = document.getElementById('save-pin-btn'); if (saveBtnLocal) saveBtnLocal.disabled = false;
+                  // Hide unlock control until a new locked pin exists again
+                  unlockBtn.style.display = 'none';
+                  // Update status after drag end
+                  try {
+                    _userPin.on('dragend', function(){ const s = document.getElementById('pin-status'); if (s) s.textContent = 'Pin moved (unsaved)'; });
+                  } catch(e) { /* not critical */ }
+                } catch (e) { console.error('unlock btn err', e); }
+              });
+            }
+
+            // No flip-order UI: markers are ordered by the authoritative timestamp
+            // (probe_creation_time / client_added_time / created_at) assigned server-side.
+
+            // Allow map clicks to place/move only the hole pin (not shot landings).
+            try {
+              map.on('click', function(e){
+                try {
+                  // Ignore clicks when a server-provided pin is locked
+                  if (_pinLocked) return;
+                  const lngLat = e.lngLat;
+                  const lat = lngLat.lat;
+                  const lng = lngLat.lng;
+
+                  if (_userPin) {
+                    _userPin.setLngLat([lng, lat]);
+                  } else {
+                    const el = document.createElement('div');
+                    el.style.background = '#2a9d8f';
+                    el.style.width = '34px';
+                    el.style.height = '34px';
+                    el.style.borderRadius = '18px';
+                    el.style.display = 'flex';
+                    el.style.alignItems = 'center';
+                    el.style.justifyContent = 'center';
+                    el.style.color = 'white';
+                    el.style.fontWeight = '600';
+                    el.textContent = 'Pin';
+                    _userPin = new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map);
+                  }
+                  document.getElementById('pin-status').textContent = 'Pin unlocked (unsaved)';
+                } catch (e) {
+                  console.error('Pin placement error', e);
+                }
+              });
+            } catch (err) {
+              console.error('Pin click setup failed', err);
+            }
+          });
+        } catch (e) {
+          // fail silently and show message
+          console.error('Map init error', e);
+        }
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

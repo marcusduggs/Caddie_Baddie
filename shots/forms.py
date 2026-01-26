@@ -34,8 +34,8 @@ class ShotAnalysisForm(forms.ModelForm):
 
     club = forms.ChoiceField(choices=CLUB_CHOICES, required=False, label='Club')
     distance = forms.FloatField(required=False, label='Distance (yards)', widget=forms.NumberInput(attrs={'placeholder': 'e.g. 120'}))
-    # Optional golf course + hole info to enrich overlays
-    course = forms.CharField(required=False, max_length=200, label='Course (optional)', widget=forms.TextInput(attrs={'placeholder': 'Course name, e.g. Pebble Beach'}))
+    # Golf course + hole info to enrich overlays (course left editable but not labeled as optional)
+    course = forms.CharField(required=False, max_length=200, label='Course', widget=forms.TextInput(attrs={'placeholder': 'Course name, e.g. Pebble Beach'}))
     hole = forms.IntegerField(required=False, min_value=1, max_value=18, label='Hole (optional)', widget=forms.NumberInput(attrs={'placeholder': 'Hole number (1-18)'}))
     # Tee selection: let user pick a tee set; default blank means 'any'
     TEE_CHOICES = [
@@ -48,7 +48,8 @@ class ShotAnalysisForm(forms.ModelForm):
         ('Green', 'Green'),
         ('Black', 'Black'),
     ]
-    selected_tee = forms.ChoiceField(choices=TEE_CHOICES, required=False, label='Preferred tee (optional)')
+    # Require preferred tee selection before upload so overlays and yardages are predictable
+    selected_tee = forms.ChoiceField(choices=TEE_CHOICES, required=True, label='Preferred tee')
 
     class Meta:
         model = ShotAnalysis

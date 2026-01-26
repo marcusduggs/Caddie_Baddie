@@ -40,6 +40,7 @@ import requests
 import urllib.parse
 import logging
 import re
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -163,6 +164,23 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
         sa.save()
 
         logger.info(f"Background processing started for analysis {analysis_pk}: {input_path} -> {output_path}")
+
+        # Non-blocking: attempt to extract GPS from video metadata and persist as a ShotDistance
+        try:
+            from utils.overlay import _extract_coords_with_ffprobe
+            coords = _extract_coords_with_ffprobe(input_path)
+            if coords:
+                lon, lat = coords
+                try:
+                    from .models import ShotDistance
+                    # create an origin-only ShotDistance so the analysis page can show a map immediately
+                    ShotDistance.objects.create(shot=sa, origin_lat=float(lat), origin_lng=float(lon), hole_number=getattr(sa, 'hole_number', None))
+                    logger.info(f"Persisted extracted GPS for analysis {analysis_pk}: lat={lat}, lon={lon}")
+                except Exception:
+                    logger.exception('Failed to persist extracted GPS for analysis %s', analysis_pk)
+        except Exception:
+            # Extraction failures are non-fatal; continue processing
+            logger.debug('GPS extraction failed or unavailable for analysis %s', analysis_pk)
 
         # Run the overlay processing (wrap any exceptions)
         try:
@@ -313,6 +331,26 @@ def home(request):
             avg_distance = sum(s.distance for s in shots) / count
         except Exception:
             avg_distance = None
+    # If the user clicks "View My Courses" we want that page to be useful.
+    # Redirect straight to add_course when the user has no courses yet so they
+    # aren't dropped on an empty listing.
+    try:
+        from .models import Course
+        # Only redirect when the user clicked the "View My Courses" link from
+        # the home page which adds ?from_home=1 to the target URL.
+        if request.user.is_authenticated and request.GET.get('from_home') == '1':
+            has_courses = Course.objects.filter(user=request.user).exists()
+            if has_courses:
+                # User explicitly asked to view courses from the home page
+                return redirect('shots:courses_list')
+            else:
+                from django.contrib import messages
+                messages.info(request, 'You have no courses yet — add a course to get started.')
+                return redirect('shots:add_course')
+    except Exception:
+        # If Course model is unavailable or any DB error occurs, fall back to normal home render
+        pass
+
     context = {
         'shots': shots,
         'count': count,
@@ -424,6 +462,13 @@ def analyze_upload(request):
         if form.is_valid():
             # Save the form to create the analysis object
             analysis = form.save(commit=False)
+            # Defensive: ensure distance is set to a valid float to satisfy the
+            # database NOT NULL constraint. Analyzer may overwrite this later.
+            try:
+                if getattr(analysis, 'distance', None) is None:
+                    analysis.distance = 0.0
+            except Exception:
+                analysis.distance = 0.0
             
             # Get the uploaded file
             uploaded_file = request.FILES.get('input_video')
@@ -475,9 +520,56 @@ def analyze_upload(request):
                             pass
                         with open(output_path, 'rb') as f:
                             analysis.processed_video.save(output_filename, File(f), save=False)
-                        
+
+                        # Run a lightweight analysis on the video to extract any metadata-derived
+                        # fields such as GPS coords and an analyzer-provided distance. This keeps
+                        # distance computation server-side and avoids relying on client input.
+                        lon = None
+                        lat = None
+                        try:
+                            try:
+                                analysis_result = utils.analyze_video(processed_input or input_path, output_dir=None) or {}
+                            except Exception:
+                                analysis_result = {}
+                            # Persist analyzer-provided distance when available
+                            if 'distance' in analysis_result and analysis_result.get('distance') is not None:
+                                try:
+                                    analysis.distance = float(analysis_result.get('distance'))
+                                except Exception:
+                                    pass
+                            # Persist GPS origin when available so the analysis page and hole map
+                            # can show an initial marker immediately.
+                            lon = analysis_result.get('longitude') or analysis_result.get('lon')
+                            lat = analysis_result.get('latitude') or analysis_result.get('lat')
+                            if lon is not None and lat is not None:
+                                try:
+                                    analysis.longitude = float(lon)
+                                    analysis.latitude = float(lat)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            # Non-fatal: continue saving analysis even if analyzer fails
+                            pass
+
+                        # Ensure 'distance' is set to a safe default to satisfy NOT NULL DB constraint
+                        if getattr(analysis, 'distance', None) is None:
+                            try:
+                                analysis.distance = 0.0
+                            except Exception:
+                                # as a final fallback, set to 0
+                                analysis.distance = 0.0
+
                         # Save the analysis to the database
                         analysis.save()
+
+                        # Create an origin-only ShotDistance when GPS origin was found so
+                        # the map can immediately show a marker (additive only).
+                        try:
+                            if (lon is not None and lat is not None):
+                                from .models import ShotDistance
+                                ShotDistance.objects.create(shot=analysis, hole_number=getattr(analysis, 'hole_number', None), origin_lat=float(lat), origin_lng=float(lon))
+                        except Exception:
+                            pass
 
                         # Success! Redirect to the round page if this analysis was attached
                         # to a round; otherwise go to the analysis detail page.
@@ -600,6 +692,46 @@ def analyze_upload(request):
 def analysis_detail(request, pk):
     """Display the analysis detail page showing both original and processed videos."""
     analysis = get_object_or_404(ShotAnalysis, pk=pk)
+    # Support POST to save a user-selected landing point for distance calculation.
+    if request.method == 'POST':
+        # Expect landing_lat and landing_lng in POST data (AJAX or form submit)
+        try:
+            landing_lat = request.POST.get('landing_lat') or request.POST.get('lat')
+            landing_lng = request.POST.get('landing_lng') or request.POST.get('lng')
+            prev_id = request.POST.get('previous_distance_id')
+            hole_number = request.POST.get('hole_number') or analysis.hole_number
+            if landing_lat and landing_lng:
+                try:
+                    from .models import ShotDistance
+                    import json
+                    lat_f = float(landing_lat)
+                    lng_f = float(landing_lng)
+                    sd = ShotDistance.objects.create(
+                        shot=analysis,
+                        hole_number=hole_number,
+                        origin_lat=(analysis.latitude if hasattr(analysis, 'latitude') else None) or None,
+                        origin_lng=(analysis.longitude if hasattr(analysis, 'longitude') else None) or None,
+                        landing_lat=lat_f,
+                        landing_lng=lng_f,
+                        previous_shot=ShotDistance.objects.filter(pk=prev_id).first() if prev_id else None,
+                    )
+                    # Compute distance using util
+                    from utils.shot_distance import compute_shot_distance
+                    yards = compute_shot_distance(sd)
+                    # Attach computed distance as attribute for JSON response
+                    resp = {'ok': True, 'distance_yards': yards, 'distance_id': sd.pk}
+                    # If AJAX, return JSON
+                    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                        return JsonResponse(resp)
+                    # Otherwise, redirect back to same page
+                    messages.success(request, 'Landing point saved.')
+                    return redirect('shots:analysis_detail', pk=analysis.pk)
+                except Exception:
+                    messages.error(request, 'Failed to save landing point.')
+            else:
+                messages.error(request, 'Invalid landing coordinates.')
+        except Exception:
+            messages.error(request, 'Error processing landing coordinates.')
     # Pass any transient overlay info present in query params so the UI can show
     # course/hole/yardage/par immediately after upload (before background processing finishes).
     overlay_info = {}
@@ -625,10 +757,87 @@ def analysis_detail(request, pk):
         except Exception:
             overlay_info['par'] = par
 
-    return render(request, 'shots/analysis_detail.html', {'analysis': analysis, 'overlay_info': overlay_info})
+    # Compute a fallback 'back to hole' URL so the detail view can link back even when
+    # the analysis.round or analysis.hole_number fields are missing.
+    back_to_hole_url = None
+    try:
+        from django.urls import reverse
+        # Primary: use explicit relation if present
+        if getattr(analysis, 'round', None) and getattr(analysis, 'hole_number', None):
+            back_to_hole_url = reverse('shots:round_hole_shots', args=[analysis.round.pk, analysis.hole_number])
+        else:
+            # Try to use HTTP_REFERER if it looks like a round/hole URL
+            ref = request.META.get('HTTP_REFERER', '')
+            if ref and '/round/' in ref and '/hole/' in ref:
+                back_to_hole_url = ref
+            else:
+                # Last resort: if we have a course_name and a hole_number, try to find a recent round for that course
+                if analysis.course_name and analysis.hole_number:
+                    try:
+                        from .models import ShotRound
+                        # pick most recent round that matches course_name for this user
+                        rr = ShotRound.objects.filter(user=analysis.user, course_name=analysis.course_name).order_by('-played_at').first()
+                        if rr:
+                            back_to_hole_url = reverse('shots:round_hole_shots', args=[rr.pk, analysis.hole_number])
+                    except Exception:
+                        back_to_hole_url = None
+    except Exception:
+        back_to_hole_url = None
+
+    # Support a lightweight GET param to return recent distances as JSON for the map picker
+    if request.method == 'GET' and request.GET.get('recent_distance'):
+        try:
+            from .models import ShotDistance
+            recent = list(ShotDistance.objects.filter(shot__user=analysis.user).order_by('-created_at').values('pk', 'landing_lat', 'landing_lng')[:10])
+            return JsonResponse({'recent': recent})
+        except Exception:
+            return JsonResponse({'recent': []})
+
+    # Also expose any GPS coords (if present) to the template for map marker placement
+    gps = {}
+    try:
+        # ShotAnalysis may have latitude/longitude fields or the original Shot model may
+        if hasattr(analysis, 'latitude') and analysis.latitude:
+            gps['lat'] = float(analysis.latitude)
+        if hasattr(analysis, 'longitude') and analysis.longitude:
+            gps['lng'] = float(analysis.longitude)
+        # If the analysis doesn't have direct GPS fields, try to use any saved ShotDistance
+        if not gps:
+            from .models import ShotDistance
+            sd = ShotDistance.objects.filter(shot=analysis).order_by('-created_at').first()
+            if sd:
+                # Prefer explicit origin saved on ShotDistance, otherwise fall back to landing
+                if sd.origin_lat is not None and sd.origin_lng is not None:
+                    gps['lat'] = float(sd.origin_lat)
+                    gps['lng'] = float(sd.origin_lng)
+                elif sd.landing_lat is not None and sd.landing_lng is not None:
+                    gps['lat'] = float(sd.landing_lat)
+                    gps['lng'] = float(sd.landing_lng)
+    except Exception:
+        gps = {}
+
+    # Provide MAPBOX_TOKEN from environment to template for progressive enhancement
+    try:
+        # Prefer settings value, fall back to environment variable for runtime overrides
+        mapbox_token = getattr(settings, 'MAPBOX_TOKEN', None) or os.environ.get('MAPBOX_TOKEN', '')
+    except Exception:
+        mapbox_token = ''
+
+    # Provide recent saved ShotDistance entries for debugging/template use
+    recent_distances = []
+    try:
+        from .models import ShotDistance
+        recent_qs = ShotDistance.objects.filter(shot=analysis).order_by('-created_at')[:10]
+        for sd in recent_qs:
+            recent_distances.append({'id': sd.pk, 'origin_lat': sd.origin_lat, 'origin_lng': sd.origin_lng, 'landing_lat': sd.landing_lat, 'landing_lng': sd.landing_lng, 'created_at': sd.created_at})
+    except Exception:
+        recent_distances = []
+
+    return render(request, 'shots/analysis_detail.html', {'analysis': analysis, 'overlay_info': overlay_info, 'back_to_hole_url': back_to_hole_url, 'gps': gps, 'MAPBOX_TOKEN': mapbox_token, 'recent_distances': recent_distances})
 
 
 from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 
 @login_required
 def overlay_status(request, pk):
@@ -1249,7 +1458,7 @@ def hole_shots(request, course_slug, hole):
     if not course_name:
         analyses = []
     else:
-        analyses = ShotAnalysis.objects.filter(user=request.user, course_name=course_name, hole_number=hole).order_by('-created_at')
+        analyses = ShotAnalysis.objects.filter(user=request.user, course_name=course_name, hole_number=hole).order_by('stroke_number', 'created_at')
     # Try to fetch hole-specific info (yardage, par, handicap) from the Golf Course API.
     hole_info = {}
     try:
@@ -1266,7 +1475,7 @@ def round_hole_shots(request, round_pk, hole):
     """List ShotAnalysis entries for a given round and hole number."""
     from .models import ShotRound
     r = get_object_or_404(ShotRound, pk=round_pk, user=request.user)
-    analyses = ShotAnalysis.objects.filter(user=request.user, round=r, hole_number=hole).order_by('-created_at')
+    analyses = ShotAnalysis.objects.filter(user=request.user, round=r, hole_number=hole).order_by('stroke_number', 'created_at')
     # Try to fetch hole-specific info (yardage, par, handicap) from the Golf Course API.
     hole_info = {}
     try:
@@ -1276,6 +1485,467 @@ def round_hole_shots(request, round_pk, hole):
         hole_info = {}
 
     return render(request, 'shots/hole_shots.html', {'analyses': analyses, 'course_name': r.course_name or '', 'hole': hole, 'course_slug': slugify(r.course_name) if r.course_name else '', 'hole_info': hole_info, 'round': r})
+
+
+@login_required
+def hole_shot_map(request, hole):
+    """Render a Mapbox visualization of ShotDistance records for a given hole.
+
+    URL provides `hole` as a path parameter. Optional GET params:
+      - round_pk (int) or course_slug (str)
+
+    This view is read-only and serializes landing coordinates for shots that
+    have landing_lat/landing_lng set. Shots are ordered ascending by created_at.
+    """
+    from django.http import HttpResponseBadRequest
+    from django.http import JsonResponse
+    try:
+        hole_num = int(hole)
+    except Exception:
+        return HttpResponseBadRequest('Invalid hole number')
+
+    # Base queryset: ShotAnalysis owned by the current user for this hole.
+    # We build one marker per ShotAnalysis to ensure shot numbering follows
+    # the chronological order in which analyses (shots) were created.
+    from .models import ShotDistance, ShotAnalysis
+    analyses_qs = ShotAnalysis.objects.filter(user=request.user, hole_number=hole_num)
+
+    # Optional filter by round_pk
+    round_pk = request.GET.get('round_pk')
+    if round_pk:
+        try:
+            rp = int(round_pk)
+            analyses_qs = analyses_qs.filter(round__pk=rp)
+        except Exception:
+            pass
+
+    # Optional filter by course_slug (resolve to course_name)
+    course_slug = request.GET.get('course_slug')
+    if course_slug and not round_pk:
+        # Find course name from user's analyses
+        slug_map = { slugify(c): c for c in ShotAnalysis.objects.filter(user=request.user).values_list('course_name', flat=True).distinct() }
+        course_name = slug_map.get(course_slug)
+        if course_name:
+            analyses_qs = analyses_qs.filter(course_name=course_name)
+
+    # If no round_pk specified, prefer to show the most recent round only when
+    # all available analyses for this hole belong to rounds. If the dataset
+    # contains a mix of round-scoped and non-round analyses (common when a
+    # user creates a new course/hole or uploads loosely), show all analyses so
+    # markers are not unexpectedly omitted.
+    if not round_pk:
+        try:
+            total_count = analyses_qs.count()
+            count_with_round = analyses_qs.filter(round__isnull=False).count()
+            # Only reduce to the most recent round when every analysis has a round
+            if total_count > 0 and count_with_round > 0 and count_with_round == total_count:
+                recent_with_round = analyses_qs.filter(round__isnull=False).order_by('-created_at').first()
+                if recent_with_round and getattr(recent_with_round, 'round', None):
+                    analyses_qs = analyses_qs.filter(round=recent_with_round.round)
+        except Exception:
+            # fall back to unfiltered analyses_qs on error
+            pass
+
+    # Choose ordering: prefer authoritative video timestamp (probe_creation_time)
+    # when available for all shots in the queryset. Next prefer client_added_time
+    # (browser-side timestamp captured at upload). Then fall back to stroke_number
+    # if present for all items, otherwise use created_at.
+    try:
+        # Prefer the upload-assigned stroke ordering when available so the hole map
+        # matches the order shown on the upload/analysis pages. Fall back to the
+        # authoritative video timestamp (probe_creation_time), then client-added
+        # timestamp, and finally created_at.
+        total = analyses_qs.count()
+        if total > 0 and analyses_qs.filter(stroke_number__isnull=False).count() == total:
+            analyses_qs = analyses_qs.order_by('stroke_number', 'created_at')
+        elif total > 0 and analyses_qs.filter(probe_creation_time__isnull=False).count() == total:
+            analyses_qs = analyses_qs.order_by('probe_creation_time', 'created_at')
+        elif total > 0 and analyses_qs.filter(client_added_time__isnull=False).count() == total:
+            analyses_qs = analyses_qs.order_by('client_added_time', 'created_at')
+        else:
+            analyses_qs = analyses_qs.order_by('created_at')
+    except Exception:
+        analyses_qs = analyses_qs.order_by('created_at')
+    shots = []
+    for analysis in analyses_qs:
+        lat = None
+        lng = None
+        coord_type = None
+        # Prefer the origin coordinates stored in a related ShotDistance (the earliest origin for the shot)
+        try:
+            # Prefer a ShotDistance that contains an explicit origin (origin_lat/lng).
+            sd_origin = ShotDistance.objects.filter(shot=analysis, origin_lat__isnull=False, origin_lng__isnull=False).order_by('created_at').first()
+            if not sd_origin:
+                # Fallback: if no origin is present, prefer a ShotDistance that has a landing (user may have set landing first).
+                sd_origin = ShotDistance.objects.filter(shot=analysis, landing_lat__isnull=False, landing_lng__isnull=False).order_by('created_at').first()
+            if not sd_origin:
+                # Final fallback: take the earliest ShotDistance record if any.
+                sd_origin = ShotDistance.objects.filter(shot=analysis).order_by('created_at').first()
+
+            if sd_origin and sd_origin.origin_lat is not None and sd_origin.origin_lng is not None:
+                lat = sd_origin.origin_lat
+                lng = sd_origin.origin_lng
+                coord_type = 'origin'
+                distance_id = sd_origin.pk
+            elif sd_origin and sd_origin.landing_lat is not None and sd_origin.landing_lng is not None:
+                # Use landing coords as a marker fallback when no origin exists.
+                lat = sd_origin.landing_lat
+                lng = sd_origin.landing_lng
+                coord_type = 'landing'
+                distance_id = sd_origin.pk
+            else:
+                distance_id = None
+        except Exception:
+            sd_origin = None
+            distance_id = None
+
+        # Fallback to any GPS attached directly on the ShotAnalysis
+        try:
+            if (lat is None or lng is None) and hasattr(analysis, 'latitude') and analysis.latitude and hasattr(analysis, 'longitude') and analysis.longitude:
+                lat = analysis.latitude
+                lng = analysis.longitude
+                coord_type = 'analysis_gps'
+        except Exception:
+            pass
+
+        if lat is None or lng is None:
+            # skip analyses with no usable coordinates
+            continue
+
+        # Determine authoritative timestamp for this analysis: prefer probe, then client, then created
+        ts = None
+        try:
+            if getattr(analysis, 'probe_creation_time', None):
+                ts = analysis.probe_creation_time
+            elif getattr(analysis, 'client_added_time', None):
+                ts = analysis.client_added_time
+            else:
+                ts = analysis.created_at
+        except Exception:
+            ts = getattr(analysis, 'created_at', None)
+
+        shots.append({
+            'lat': float(lat),
+            'lng': float(lng),
+            'coord_type': coord_type,
+            'stroke_number': getattr(analysis, 'stroke_number', None),
+            'created_at': analysis.created_at.isoformat(),
+            'timestamp': (ts.isoformat() if ts is not None else None),
+            'analysis_id': analysis.pk,
+            'distance_id': distance_id,
+        })
+
+    # Assign 1-based indices in the chosen ordering (oldest/first stroke => index 1)
+    for i, s in enumerate(shots, start=1):
+        s.setdefault('index', i)
+
+    # Provide MAPBOX_TOKEN from settings/env
+    try:
+        mapbox_token = getattr(settings, 'MAPBOX_TOKEN', None) or os.environ.get('MAPBOX_TOKEN', '')
+    except Exception:
+        mapbox_token = ''
+
+    # include course_slug in context so the template back-link can build the URL
+    context = {
+        'hole': hole_num,
+        'shots_json': json.dumps(shots),
+        'shots': shots,
+        'MAPBOX_TOKEN': mapbox_token,
+        'course_slug': course_slug or '',
+    'hole_pin': None,
+    'hole_pin_json': 'null',
+    }
+    # Provide any saved HolePin for this user/hole so the template can lock the pin UI
+    try:
+        from .models import HolePin
+        hp = HolePin.objects.filter(user=request.user, hole_number=hole_num).order_by('-created_at').first()
+        if hp:
+            pin_obj = {'lat': float(hp.lat), 'lng': float(hp.lng), 'created_at': hp.created_at.isoformat()}
+            context['hole_pin'] = pin_obj
+            try:
+                context['hole_pin_json'] = json.dumps(pin_obj)
+            except Exception:
+                context['hole_pin_json'] = 'null'
+    except Exception:
+        pass
+    return render(request, 'shots/hole_shot_map.html', context)
+
+
+@login_required
+def api_get_hole_pin(request, hole_id):
+    """Return the latest HolePin for the current user and hole as JSON.
+
+    GET /api/holes/<hole_id>/pin/
+    Response: { ok: true, hole_pin: { lat, lng, created_at } } or { ok: true, hole_pin: null }
+    """
+    try:
+        from .models import HolePin
+        hp = HolePin.objects.filter(user=request.user, hole_number=hole_id).order_by('-created_at').first()
+        if not hp:
+            return JsonResponse({'ok': True, 'hole_pin': None})
+        pin_obj = {'lat': float(hp.lat), 'lng': float(hp.lng), 'created_at': hp.created_at.isoformat()}
+        return JsonResponse({'ok': True, 'hole_pin': pin_obj})
+    except Exception as e:
+        logger.exception('Error in api_get_hole_pin')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def save_hole_pin(request, hole_id):
+    """Persist a saved pin for a hole and recompute distances for all shots on that hole.
+
+    - Stores a HolePin record (additive).
+    - Iterates ShotDistance records for the hole (ordered by created_at asc) and
+      recomputes distances using the existing compute_shot_distance util. The
+      final shot's landing is treated as the saved pin.
+    - Persists computed yards to the related ShotAnalysis.distance field.
+    Returns JSON: {ok: True, shots_updated: N}
+
+    Ordering note: shots are processed in chronological order (oldest -> newest)
+    so that each ShotDistance's `origin` is considered the previous shot's landing
+    when present. If a ShotDistance lacks an explicit origin, we attempt to use
+    its stored origin_lat/origin_lng; the final shot uses the saved pin as landing.
+    """
+    try:
+        import json as _json
+        lat = request.POST.get('lat')
+        lng = request.POST.get('lng')
+        if lat is None or lng is None:
+            return JsonResponse({'ok': False, 'error': 'Missing lat/lng'}, status=400)
+        try:
+            lat_f = float(lat); lng_f = float(lng)
+        except Exception:
+            return JsonResponse({'ok': False, 'error': 'Invalid coordinate format'}, status=400)
+
+        from .models import HolePin, ShotDistance
+        # Try to persist a HolePin for this user/hole; non-fatal if it fails
+        hp = None
+        try:
+            # Persist a single user-scoped HolePin per hole. Use update_or_create so
+            # subsequent saves overwrite the previous pin instead of creating many.
+            hp, created = HolePin.objects.update_or_create(
+                user=request.user,
+                hole_number=hole_id,
+                defaults={'lat': lat_f, 'lng': lng_f},
+            )
+        except Exception:
+            # Log, but continue to recompute distances even if persisting the pin fails.
+            logger.exception('Failed to persist HolePin; continuing to recompute distances')
+
+        # Build ordered ShotDistance list following the same ordering used by the
+        # hole map: prefer upload-assigned stroke_number when present for all
+        # analyses, then probe_creation_time, then client_added_time, then created_at.
+        from .models import ShotAnalysis
+        analyses_qs = ShotAnalysis.objects.filter(user=request.user, hole_number=hole_id)
+        try:
+            total = analyses_qs.count()
+            if total > 0 and analyses_qs.filter(stroke_number__isnull=False).count() == total:
+                analyses_qs = analyses_qs.order_by('stroke_number', 'created_at')
+            elif total > 0 and analyses_qs.filter(probe_creation_time__isnull=False).count() == total:
+                analyses_qs = analyses_qs.order_by('probe_creation_time', 'created_at')
+            elif total > 0 and analyses_qs.filter(client_added_time__isnull=False).count() == total:
+                analyses_qs = analyses_qs.order_by('client_added_time', 'created_at')
+            else:
+                analyses_qs = analyses_qs.order_by('created_at')
+        except Exception:
+            analyses_qs = analyses_qs.order_by('created_at')
+
+        # For each analysis pick the earliest ShotDistance (origin) so we have one
+        # ShotDistance per shot aligned with the analysis ordering.
+        sds = []
+        for analysis in analyses_qs:
+            sd_origin = ShotDistance.objects.filter(shot=analysis).order_by('created_at').first()
+            if sd_origin:
+                sds.append(sd_origin)
+        if not sds:
+            return JsonResponse({'ok': True, 'shots_updated': 0})
+
+        from utils.shot_distance import compute_shot_distance
+        from types import SimpleNamespace
+
+        updated = 0
+        shot_reports = []
+
+        # Build a list of effective origins (may apply a light smoothing pass to
+        # mitigate single-point GPS outliers). We do not modify the DB here.
+        effective_origins = []
+        for sd in sds:
+            if sd.origin_lat is not None and sd.origin_lng is not None:
+                effective_origins.append((float(sd.origin_lat), float(sd.origin_lng)))
+            else:
+                effective_origins.append((None, None))
+
+        # Smoothing: if a middle origin is a large jump from previous but
+        # previous and next are close, replace the middle origin with the
+        # average of its neighbors for computation only.
+        def yards_between(a, b):
+            try:
+                return distance_yards(a[0], a[1], b[0], b[1])
+            except Exception:
+                return None
+
+        from utils.shot_distance import distance_yards
+        n = len(effective_origins)
+        for i in range(1, n-1):
+            prev = effective_origins[i-1]
+            cur = effective_origins[i]
+            nxt = effective_origins[i+1]
+            if prev[0] is None or cur[0] is None or nxt[0] is None:
+                continue
+            # distances in yards
+            d_prev_cur = yards_between(prev, cur) or 0
+            d_cur_next = yards_between(cur, nxt) or 0
+            d_prev_next = yards_between(prev, nxt) or 0
+            # If cur is far from both neighbors but neighbors are close to each
+            # other, cur is likely an outlier (GPS spike). Thresholds conservative.
+            if d_prev_cur > 80 and d_cur_next > 80 and d_prev_next < 40:
+                # replace cur with midpoint of neighbors for computation
+                mid_lat = (prev[0] + nxt[0]) / 2.0
+                mid_lng = (prev[1] + nxt[1]) / 2.0
+                effective_origins[i] = (mid_lat, mid_lng)
+
+        # Iterate chronological order and compute every shot's distance as follows:
+        # - For i in 0..n-2: compute shot_i from its origin -> shot_{i+1}.origin (if both origins exist).
+        #   Also persist shot_i.landing to the next origin so the additive ShotDistance reflects the landing.
+        # - For the final shot (n-1): set its landing to the saved pin and compute origin->pin.
+        n = len(sds)
+        for i in range(n):
+            try:
+                curr = sds[i]
+                # If this is not the final shot, attempt to use the next shot's origin as this shot's landing
+                if i < n - 1:
+                    next_sd = sds[i + 1]
+                    # Only compute if both origins are present
+                    if curr.origin_lat is not None and curr.origin_lng is not None and next_sd.origin_lat is not None and next_sd.origin_lng is not None:
+                        # Set this shot's landing to next shot's origin
+                        curr.landing_lat = float(next_sd.origin_lat)
+                        curr.landing_lng = float(next_sd.origin_lng)
+                        try:
+                            curr.save()
+                        except Exception:
+                            # Non-fatal; continue to computation even if save fails
+                            pass
+                        temp = SimpleNamespace(origin_lat=curr.origin_lat, origin_lng=curr.origin_lng, landing_lat=next_sd.origin_lat, landing_lng=next_sd.origin_lng)
+                        yards = compute_shot_distance(temp)
+                        # Record result for diagnostics
+                        shot_reports.append({'shot_distance_pk': curr.pk, 'shot_analysis_pk': getattr(curr.shot, 'pk', None), 'origin': (curr.origin_lat, curr.origin_lng), 'landing': (next_sd.origin_lat, next_sd.origin_lng), 'computed_yards': (float(yards) if yards is not None else None)})
+                        if yards is not None:
+                            try:
+                                sa = curr.shot
+                                sa.distance = float(yards)
+                                sa.save()
+                                updated += 1
+                            except Exception:
+                                pass
+                    else:
+                        # insufficient origin data to compute this segment; skip
+                        continue
+                else:
+                    # Final shot: set landing to saved pin and compute origin->pin
+                    curr.landing_lat = lat_f
+                    curr.landing_lng = lng_f
+                    try:
+                        curr.save()
+                    except Exception:
+                        pass
+                    if curr.origin_lat is not None and curr.origin_lng is not None:
+                        yards = compute_shot_distance(curr)
+                        shot_reports.append({'shot_distance_pk': curr.pk, 'shot_analysis_pk': getattr(curr.shot, 'pk', None), 'origin': (curr.origin_lat, curr.origin_lng), 'landing': (curr.landing_lat, curr.landing_lng), 'computed_yards': (float(yards) if yards is not None else None)})
+                        if yards is not None:
+                            try:
+                                sa = curr.shot
+                                sa.distance = float(yards)
+                                sa.save()
+                                updated += 1
+                            except Exception:
+                                pass
+            except Exception:
+                logger.exception('Failed to recompute for ShotDistance %s', getattr(curr, 'pk', None))
+
+        # Include persisted pin info in the response so the client can lock and render it.
+        pin_obj = None
+        try:
+            if hp:
+                pin_obj = {'lat': float(hp.lat), 'lng': float(hp.lng), 'created_at': hp.created_at.isoformat()}
+        except Exception:
+            pin_obj = None
+    # Attempt to include the final computed distance for the last shot if we set it.
+        final_distance = None
+        try:
+            last_sd = sds[-1]
+            if last_sd and getattr(last_sd, 'shot', None) and getattr(last_sd.shot, 'distance', None) is not None:
+                final_distance = float(last_sd.shot.distance)
+        except Exception:
+            final_distance = None
+        return JsonResponse({'ok': True, 'shots_updated': updated, 'hole_pin': pin_obj, 'final_distance_yards': final_distance, 'per_shot': shot_reports})
+    except Exception as e:
+        logger.exception('Error in save_hole_pin')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def last_shot_landing(request, hole_id):
+    """API: Accept a landing coordinate for the last ShotDistance on a hole.
+
+    Behavior:
+    - Identifies the last ShotDistance for the given hole owned by the user
+      (ordered by created_at desc).
+    - Sets landing_lat and landing_lng on that ShotDistance and saves it.
+    - Calls the existing compute_shot_distance() utility to compute yards.
+    - Persists the computed yards onto the related ShotAnalysis.distance field
+      (ShotDistance model is additive and currently does not store a yards
+      column; storing on ShotAnalysis keeps the computed value durable without
+      requiring a DB schema change).
+    - Returns JSON {ok: true, distance_yards: <float>} on success.
+
+    Notes: We intentionally avoid duplicating the haversine logic in JS and
+    reuse the server-side utility in `utils.shot_distance.compute_shot_distance`.
+    """
+    try:
+        lat = request.POST.get('landing_lat') or request.POST.get('lat')
+        lng = request.POST.get('landing_lng') or request.POST.get('lng')
+        if lat is None or lng is None:
+            return JsonResponse({'ok': False, 'error': 'Missing coordinates'}, status=400)
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+        except Exception:
+            return JsonResponse({'ok': False, 'error': 'Invalid coordinate format'}, status=400)
+
+        from .models import ShotDistance
+        # Find the most recent ShotDistance for this hole belonging to the user.
+        sd = ShotDistance.objects.filter(shot__user=request.user, hole_number=hole_id).order_by('-created_at').first()
+        if not sd:
+            # If no ShotDistance exists yet, we can't sensibly compute a distance
+            return JsonResponse({'ok': False, 'error': 'No shot origin found for this hole'}, status=404)
+
+        # Save landing coords
+        sd.landing_lat = lat_f
+        sd.landing_lng = lng_f
+        sd.save()
+
+        # Compute distance using existing server-side utility
+        from utils.shot_distance import compute_shot_distance
+        yards = compute_shot_distance(sd)
+
+        # Persist computed yards on the related ShotAnalysis distance field so the
+        # value is durable and visible elsewhere in the app. This avoids schema
+        # changes while keeping shot data server-authoritative.
+        if yards is not None:
+            try:
+                sa = sd.shot
+                sa.distance = float(yards)
+                sa.save()
+            except Exception:
+                # Non-fatal: continue even if saving to ShotAnalysis fails
+                pass
+
+        return JsonResponse({'ok': True, 'distance_yards': yards})
+    except Exception as e:
+        logger.exception('Error in last_shot_landing')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
 def fetch_hole_info(course_name, hole, preferred_tee=None):
@@ -1573,19 +2243,18 @@ def analyze_upload(request):
             if idxs:
                 for idx in sorted(idxs):
                     club_val = (request.POST.get(f'club_{idx}', '') or '').strip()
-                    dist_val = (request.POST.get(f'distance_{idx}', '') or '').strip()
-                    if not club_val or not dist_val:
+                    # Distance is now computed server-side; only require club selection from user
+                    if not club_val:
                         missing_meta.append(idx)
             else:
-                # fallback: ensure at least one club/distance exists when files were uploaded
+                # fallback: ensure at least one club exists when files were uploaded
                 for idx, _ in enumerate(uploaded_files):
                     club_val = (request.POST.get(f'club_{idx}', '') or '').strip()
-                    dist_val = (request.POST.get(f'distance_{idx}', '') or '').strip()
-                    if not club_val or not dist_val:
+                    if not club_val:
                         missing_meta.append(idx)
 
             if missing_meta:
-                messages.error(request, 'Please select a club and provide a distance (yards) for each selected video before analyzing.')
+                messages.error(request, 'Please select a club for each selected video before analyzing.')
                 # Re-render the form with existing rounds and context so the user can correct entries
                 rounds = []
                 try:
@@ -1660,12 +2329,22 @@ def analyze_upload(request):
 
             file_time_pairs.sort(key=_sort_key)
 
-            # Assign stroke numbers starting at 1 based on sorted order
+            # Assign stroke numbers: prefer any client-provided stroke_number_{original_index}
+            # (the upload page writes these) so the server preserves the UI labels.
             processing_queue = []
-            for stroke_num, pair in enumerate(file_time_pairs, start=1):
+            for enumerated_idx, pair in enumerate(file_time_pairs, start=1):
                 uploaded_file = pair['file']
                 tmp_path = pair.get('tmp_path')
                 original_index = pair.get('index')
+                # Attempt to read client-provided stroke_number and upload_time
+                stroke_num_raw = request.POST.get(f'stroke_number_{original_index}')
+                upload_time_raw = request.POST.get(f'upload_time_{original_index}')
+                client_provided_stroke = None
+                try:
+                    if stroke_num_raw:
+                        client_provided_stroke = int(stroke_num_raw)
+                except Exception:
+                    client_provided_stroke = None
                 # Per-file metadata keys use the original upload index (club_0, distance_0)
                 per_club = request.POST.get(f'club_{original_index}', '').strip() or None
                 per_distance_raw = request.POST.get(f'distance_{original_index}', '').strip() or None
@@ -1676,6 +2355,15 @@ def analyze_upload(request):
                 # Create a new ShotAnalysis instance per uploaded file
                 analysis = ShotAnalysis()
                 analysis.user = request.user
+                # Use client-provided stroke number when possible, otherwise fall back
+                # to the enumerated order used for processing (enumerated_idx).
+                try:
+                    if client_provided_stroke is not None:
+                        analysis.stroke_number = int(client_provided_stroke)
+                    else:
+                        analysis.stroke_number = int(enumerated_idx)
+                except Exception:
+                    pass
                 # copy fields from form.cleaned_data where present
                 try:
                     cleaned = form.cleaned_data
@@ -1684,19 +2372,36 @@ def analyze_upload(request):
                 # Use per-file values if provided, otherwise fall back to global values
                 analysis.club = per_club or global_club or (cleaned.get('club') if cleaned else None)
                 analysis.distance = per_distance if per_distance is not None else (global_distance if global_distance is not None else (cleaned.get('distance') if cleaned else None))
+                # Ensure distance is never left as None to satisfy the model DB constraint.
+                try:
+                    if getattr(analysis, 'distance', None) is None:
+                        analysis.distance = 0.0
+                except Exception:
+                    analysis.distance = 0.0
 
                 # Save uploaded file to model (this writes to MEDIA_ROOT/input/)
                 analysis.input_video.save(uploaded_file.name, uploaded_file, save=False)
 
-                # Probe the saved file with ffprobe to extract authoritative creation_time
+                # If client provided an upload_time for this file, try to persist it
                 try:
-                    saved_path = analysis.input_video.path
-                    probe_dt = probe_video_creation_time(saved_path)
-                    if probe_dt:
-                        analysis.probe_creation_time = probe_dt
+                    if upload_time_raw:
+                        from dateutil import parser as dateparser
+                        dt = dateparser.parse(upload_time_raw)
+                        import datetime
+                        if dt.tzinfo:
+                            dt = dt.astimezone(datetime.timezone.utc)
+                        else:
+                            dt = dt.replace(tzinfo=datetime.timezone.utc)
+                        analysis.client_added_time = dt
                 except Exception:
-                    # don't block upload/process on probe failures
-                    pass
+                    # If parsing fails, fall back to probing the saved file
+                    try:
+                        saved_path = analysis.input_video.path
+                        probe_dt = probe_video_creation_time(saved_path)
+                        if probe_dt:
+                            analysis.probe_creation_time = probe_dt
+                    except Exception:
+                        pass
 
                 # Read client-side selection timestamp (upload_time_{original_index}) and store it
                 try:
@@ -1705,10 +2410,13 @@ def analyze_upload(request):
                         from dateutil import parser as _dp
                         try:
                             dt = _dp.parse(upload_time_raw)
-                            # Convert aware to naive UTC
+                            # Normalize to timezone-aware UTC (preserve tzinfo) so
+                            # ordering comparisons with probe_creation_time are consistent.
                             import datetime as _dt
                             if dt.tzinfo:
-                                dt = dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+                                dt = dt.astimezone(_dt.timezone.utc)
+                            else:
+                                dt = dt.replace(tzinfo=_dt.timezone.utc)
                             analysis.client_added_time = dt
                         except Exception:
                             pass

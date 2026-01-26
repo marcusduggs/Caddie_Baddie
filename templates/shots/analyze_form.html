@@ -45,7 +45,7 @@
         <!-- Mode toggle buttons -->
         <div id="round-mode-toggle" class="mb-3 flex gap-2">
           <button type="button" id="btn-existing-round" aria-pressed="true" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-green-600 text-white text-sm">Choose existing round</button>
-          <button type="button" id="btn-new-round" aria-pressed="false" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-white text-gray-700 text-sm" {% if fixed_course %}disabled aria-disabled="true" title="Create new round disabled when uploading to a locked course"{% endif %}>Create new round</button>
+          <button type="button" id="btn-new-round" aria-pressed="false" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-white text-gray-700 text-sm">Create new round</button>
         </div>
 
         <!-- Existing round selector (default visible) -->
@@ -79,25 +79,25 @@
         <!-- Course name (optional) -->
         <div>
           {% if fixed_course %}
-            {# If we have a Course object, use its name; otherwise use fixed_course_name #}
-            <input type="hidden" name="course" id="hidden-fixed-course" value="{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}" />
-            <div class="mb-1 text-sm text-gray-700">🏟️ Uploading for course: <strong>{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}</strong></div>
-            {# Visual locked badge with unlock action #}
-            <div id="course-locked-badge" class="inline-flex items-center gap-3 mt-2 px-3 py-1 rounded bg-yellow-50 text-yellow-800 text-sm">
-              <span>🔒 Locked to course:</span>
-              <strong id="badge-course-name">{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}</strong>
-              <button type="button" id="unlock-course-btn" class="ml-3 text-xs underline">Unlock</button>
+            {# Prefill the course input but keep it editable (no lock) #}
+            <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
+              🏟️ Course (pre-filled)
+            </label>
+            <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" value="{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}" />
+            <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
+            <div class="mt-2">
+              <span class="inline-flex items-center gap-2 px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">Pre-filled from course context</span>
             </div>
-            {# Hide the editable course input and suggestions via inline CSS to ensure it's not editable #}
-            <style>#id_course, #course-suggestions, #id_suggested_course_id { display: none !important; }</style>
+            <div id="course-suggestions" class="mt-1 relative"></div>
+            <p class="mt-1 text-sm text-gray-500">Provide a course name to overlay the course and hole yardage.</p>
           {% else %}
             <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
-              🏟️ Course (optional)
+              🏟️ Course
             </label>
             <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" value="{% if initial_course %}{{ initial_course|escape }}{% endif %}" />
             <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
             <div id="course-suggestions" class="mt-1 relative"></div>
-            <p class="mt-1 text-sm text-gray-500">Optional — provide a course name to overlay the course and hole yardage.</p>
+            <p class="mt-1 text-sm text-gray-500">Provide a course name to overlay the course and hole yardage.</p>
           {% endif %}
         </div>
 
@@ -109,13 +109,13 @@
           <input type="number" name="hole" id="id_hole" min="1" max="18" placeholder="Hole number (1-18)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
         </div>
 
-        <!-- Tee selection (optional) -->
+        <!-- Tee selection (required) -->
         <div>
           <label for="id_selected_tee" class="block text-sm font-medium text-gray-700 mb-2">
-            🏷️ {% if fixed_course %}Preferred Tee{% else %}Preferred Tee (optional){% endif %}
+            🏷️ Preferred Tee
           </label>
-          <select name="selected_tee" id="id_selected_tee" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
-                <option value="">Any</option>
+          <select name="selected_tee" id="id_selected_tee" required class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
+                <option value="">Select a preferred tee</option>
                 <!-- Server-side prefetched tee options (fallback) -->
                 {% if prefetched_tee_names %}
                   {% for tn in prefetched_tee_names %}
@@ -140,11 +140,12 @@
               </label>
             </div>
             <pre id="tee-payload-debug" class="mt-2 p-2 bg-black text-white text-xs overflow-auto hidden" style="max-height:200px;"></pre>
-          <p class="mt-1 text-sm text-gray-500">Optional — pick a tee set to prefer its yardages (if available in the API).</p>
+          <p class="mt-1 text-sm text-gray-500">Pick a tee set — required before uploading so yardages and overlays are accurate.</p>
         </div>
         
         <!-- Video Upload -->
         <div>
+          <div id="round-warning" class="mb-2 text-sm text-red-600 hidden">Please select an existing round or create a new round before uploading videos.</div>
           <label for="{{ form.input_video.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
             🎥 Video File
           </label>
@@ -286,7 +287,7 @@
         filesWithIndex.sort((a, b) => (a.lastModified - b.lastModified) || (a.originalIndex - b.originalIndex));
 
         // For each file in sorted order, render club and distance inputs; name inputs using the ORIGINAL index
-        filesWithIndex.forEach((entry, displayIndex) => {
+          filesWithIndex.forEach((entry, displayIndex) => {
           const f = entry.file;
           const i = entry.originalIndex;
           const wrapper = document.createElement('div');
@@ -304,7 +305,7 @@
               </div>
               <div class="text-xs text-gray-500">${(f.size/(1024*1024)).toFixed(2)} MB</div>
             </div>
-            <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="mt-2 grid grid-cols-1 sm:grid-cols-1 gap-3">
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Club</label>
                 <select name="club_${i}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
@@ -326,12 +327,9 @@
                   <option value="Other">Other</option>
                 </select>
               </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Distance (yards)</label>
-                <input type="number" step="0.1" name="distance_${i}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" placeholder="e.g. 120" />
-              </div>
             </div>
-            <input type="hidden" name="upload_time_${i}" value="${new Date().toISOString()}" />
+            <input type="hidden" name="upload_time_${i}" value="${fallback ? new Date(f.lastModified).toISOString() : new Date().toISOString()}" />
+            <input type="hidden" name="stroke_number_${i}" value="${displayIndex+1}" />
           `;
           metaContainer.appendChild(wrapper);
 
@@ -347,21 +345,68 @@
       const form = document.querySelector('form');
       const submitBtn = document.getElementById('submit-btn');
       const progressDiv = document.getElementById('upload-progress');
+
+      // Disable file input until a round is selected or a new round name is provided
+      const fileInput = document.getElementById('{{ form.input_video.id_for_label }}');
+      function updateFileInputState() {
+        try {
+          const roundSel = document.querySelector('select[name="round_id"]');
+          const newRnd = document.querySelector('input[name="new_round_name"]');
+          const teeSel = document.querySelector('select[name="selected_tee"]');
+          // require a round/new round and a selected tee before enabling file input
+          const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
+          const hasTee = (teeSel && teeSel.value);
+          const enabled = hasRound && hasTee;
+          if (fileInput) {
+            if (enabled) { fileInput.removeAttribute('disabled'); }
+            else { fileInput.setAttribute('disabled','disabled'); }
+          }
+        } catch (e) {}
+      }
+      // Initialize state
+      updateFileInputState();
+      // Attach listeners to toggle state
+      try {
+        const roundSelEl = document.querySelector('select[name="round_id"]');
+        const newRndEl = document.querySelector('input[name="new_round_name"]');
+  const teeSelEl = document.querySelector('select[name="selected_tee"]');
+  if (roundSelEl) roundSelEl.addEventListener('change', updateFileInputState);
+  if (newRndEl) newRndEl.addEventListener('input', updateFileInputState);
+  if (teeSelEl) teeSelEl.addEventListener('change', updateFileInputState);
+      } catch (e) {}
       
       form.addEventListener('submit', function(e) {
+          // Ensure a round is selected or a new round name provided and a preferred tee is selected before submitting
+        try {
+          const roundSel = document.querySelector('select[name="round_id"]');
+          const newRnd = document.querySelector('input[name="new_round_name"]');
+            const teeSel = document.querySelector('select[name="selected_tee"]');
+          const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
+          if (!hasRound) {
+            e.preventDefault();
+            const warn = document.getElementById('round-warning');
+            if (warn) warn.classList.remove('hidden');
+            alert('Please choose an existing round or create a new round before uploading.');
+            return false;
+          }
+            // Enforce tee selection
+            if (!teeSel || !teeSel.value) {
+              e.preventDefault();
+              alert('Please select a Preferred Tee before uploading.');
+              return false;
+            }
+        } catch (er) {}
         // Client-side validation: ensure each selected file has club and distance filled
         const metaContainer = document.getElementById('per-file-meta');
         const panels = metaContainer.querySelectorAll('[name^="club_"]');
         // Build a list of original indices by scanning club selects
         let missing = [];
-        // For each select element named club_{i}, check the paired distance_{i}
+        // For each select element named club_{i}, ensure club is selected; distances are computed server-side
         metaContainer.querySelectorAll('select[name^="club_"]').forEach(function(sel) {
           const name = sel.getAttribute('name');
           const idx = name.split('_')[1];
-          const distanceEl = metaContainer.querySelector(`input[name="distance_${idx}"]`);
           const clubVal = (sel.value || '').trim();
-          const distVal = distanceEl ? (distanceEl.value || '').trim() : '';
-          if (!clubVal || !distVal) {
+          if (!clubVal) {
             missing.push(idx);
           }
         });
@@ -377,7 +422,7 @@
             alert.setAttribute('role', 'alert');
             submitBtn.parentNode.insertBefore(alert, submitBtn.nextSibling);
           }
-          alert.innerHTML = `<strong class="font-semibold">Missing information:</strong> Please select a club and enter a distance (yards) for each selected video before analyzing.`;
+          alert.innerHTML = `<strong class="font-semibold">Missing information:</strong> Please select a club for each selected video before analyzing.`;
           // restore submit button state
           submitBtn.disabled = false;
           submitBtn.textContent = '🚀 Analyze Shot';
@@ -441,28 +486,7 @@
           }
         } catch (e) {}
 
-        // Unlock course action: allow user to override locked course when clicking Unlock
-        const unlockBtn = document.getElementById('unlock-course-btn');
-        if (unlockBtn) {
-          unlockBtn.addEventListener('click', function() {
-            if (!confirm('Unlock course field so you can change the course for this upload?')) return;
-            // remove hidden course input
-            const hidden = document.getElementById('hidden-fixed-course');
-            if (hidden && hidden.parentNode) hidden.parentNode.removeChild(hidden);
-            // show editable input and suggestions
-            try { document.getElementById('id_course').style.display = ''; } catch (e) {}
-            try { document.getElementById('course-suggestions').style.display = ''; } catch (e) {}
-            try { document.getElementById('id_suggested_course_id').style.display = ''; } catch (e) {}
-            // remove badge
-            const badge = document.getElementById('course-locked-badge');
-            if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
-            // enable create new round button
-            const newRoundBtn = document.getElementById('btn-new-round');
-            if (newRoundBtn) { newRoundBtn.removeAttribute('disabled'); newRoundBtn.removeAttribute('aria-disabled'); }
-            // focus the course input
-            try { document.getElementById('id_course').focus(); } catch (e) {}
-          });
-        }
+  // No unlock button behavior — course field is editable when prefilled.
       }
 
       if (roundSelect) {
@@ -531,6 +555,17 @@
         if (btnExisting && btnNew) {
           btnExisting.addEventListener('click', showExisting);
           btnNew.addEventListener('click', showNew);
+          // Auto-switch to "Create new round" when the user types a new round name
+          try {
+            if (newNameEl) {
+              newNameEl.addEventListener('input', function() {
+                try {
+                  if (this.value && this.value.trim().length > 0) showNew();
+                  else showExisting();
+                } catch (e) {}
+              });
+            }
+          } catch (e) {}
         }
 
         // If URL provided a selected round, default to existing mode and preselect it
@@ -552,6 +587,7 @@
           const params = new URLSearchParams(window.location.search);
           const rid = params.get('round_id');
           const holeParam = params.get('hole');
+          const courseParam = params.get('course');
           if (rid && roundSelect) {
             for (let i=0;i<roundSelect.options.length;i++){
               if (roundSelect.options[i].value === rid) { roundSelect.selectedIndex = i; break; }
@@ -560,6 +596,13 @@
           if (holeParam) {
             const holeInput = document.querySelector('input[name="hole"]');
             if (holeInput) holeInput.value = holeParam;
+          }
+          // If the link included a course name, prefill the course input as well.
+          if (courseParam) {
+            try {
+              const courseInput = document.querySelector('input[name="course"]');
+              if (courseInput && courseParam) courseInput.value = courseParam;
+            } catch (e) {}
           }
           refreshSelectedRound();
         } catch (e) {
@@ -870,26 +913,19 @@
         };
       } catch (e) {}
 
-      // When the include_map checkbox toggles, enable/disable the course input and auto-fetch if turning on
+        // When the include_map checkbox toggles, only control auto-fetching; keep the course input editable
       try {
         const includeMap = document.getElementById('id_include_map');
         const courseInput = document.getElementById('id_course');
         if (includeMap) {
-          function updateCourseEnabled() {
-            if (!courseInput) return;
+          includeMap.addEventListener('change', function() {
             if (includeMap.checked) {
-              courseInput.removeAttribute('disabled');
-              // if course has value, try to populate tees now
-              const val = courseInput.value && courseInput.value.trim();
+              const val = courseInput && courseInput.value && courseInput.value.trim();
               if (val && val.length > 2) fetchCourseAndPopulate(val);
             } else {
-              // disable the input so it's not submitted and avoid accidental fetches
-              courseInput.setAttribute('disabled', 'disabled');
+              const status = document.getElementById('tee-status'); if (status) status.textContent = 'Map overlay disabled (enable to load tees).';
             }
-          }
-          includeMap.addEventListener('change', updateCourseEnabled);
-          // initialize state
-          updateCourseEnabled();
+          });
         }
       } catch (e) {}
 
