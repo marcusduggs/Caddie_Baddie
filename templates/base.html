@@ -43,6 +43,7 @@
           </h1>
         </div>
         <div class="flex items-center gap-3">
+          <a href="/" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Home</a>
           {% if user.is_authenticated %}
             <a href="{% url 'logout' %}" class="bg-[#3a86ff] text-white px-5 py-2 rounded-lg shadow hover:bg-[#264653] transition">Log Out</a>
           {% endif %}
@@ -55,5 +56,6 @@
     <footer class="mt-8 py-4 text-center text-gray-600 text-sm border-t border-gray-200">
       <p>Caddie Baddie • Make every swing share-worthy.</p>
     </footer>
+  {% block extra_scripts %}{% endblock %}
   </body>
 </html>

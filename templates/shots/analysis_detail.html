@@ -4,14 +4,15 @@
 
 {% block content %}
   <div class="max-w-6xl mx-auto">
-    <h2 class="text-3xl font-bold mb-6">📊 Shot Analysis #{{ analysis.id }}</h2>
-    
-    <div class="mb-6 flex flex-wrap gap-2"
-      <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
-        📹 Upload New Video
-      </a>
+    <h2 class="text-3xl font-bold mb-6">
+      {% if analysis.course_name %}{{ analysis.course_name }}{% else %}Course{% endif %}
+      {% if analysis.hole_number %}- Hole {{ analysis.hole_number }}{% endif %}
+      {% if analysis.stroke_number %}- Shot {{ analysis.stroke_number }}{% endif %}
+    </h2>
+
+  <div class="mb-6 flex flex-wrap gap-2">
       <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-        📋 View All Shots
+        📋 View Favorite Shots
       </a>
       <form method="post" action="{% url 'shots:toggle_favorite' analysis.pk %}">
         {% csrf_token %}
@@ -21,7 +22,18 @@
           <button type="submit" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">⭐ Share</button>
         {% endif %}
       </form>
+      {% if analysis.round and analysis.hole_number %}
+        <a href="{% url 'shots:round_hole_shots' analysis.round.pk analysis.hole_number %}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+          ← Back to Hole
+        </a>
+      {% elif back_to_hole_url %}
+        <a href="{{ back_to_hole_url }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+          ← Back to Hole
+        </a>
+      {% endif %}
     </div>
+
+  {# Measure Shot Distance removed per user request. Hole-level map remains available via Hole Map page. #}
 
     <!-- Shot Details -->
     <div class="bg-white shadow-md rounded-lg p-6 mb-6">
@@ -188,7 +200,7 @@
       {% endif %}
     </div>
 
-    <!-- Back Button -->
+    <!-- Back Button (moved to action bar above) -->
     <div class="mt-8">
       <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-lg">
         ← Back to All Shots
@@ -215,11 +227,14 @@
 {% block extra_scripts %}
   <script>
     (function(){
-      try {
-        const overlayRequested = "{{ analysis.overlay_requested|yesno:'true,false' }}" === 'true';
-        if (!overlayRequested) return;
-        const analysisPk = parseInt("{{ analysis.pk }}", 10) || null;
-        const statusUrl = new URL('{% url "shots:overlay_status" analysis.pk %}', window.location.origin).toString();
+  try {
+  const overlayRequested = "{{ analysis.overlay_requested|yesno:'true,false' }}" === 'true';
+  // If overlay was already completed when the page loaded, don't start polling
+  const initialOverlayStatus = "{{ analysis.overlay_status|default:'' }}".toString();
+  if (!overlayRequested) return;
+  if (initialOverlayStatus === 'completed') return;
+  const analysisPk = parseInt("{{ analysis.pk }}", 10) || null;
+  const statusUrl = new URL('{% url "shots:overlay_status" analysis.pk %}', window.location.origin).toString();
         let polling = true;
         async function poll() {
           try {
@@ -231,10 +246,34 @@
             const progress = document.getElementById('overlay-progress');
             const player = document.getElementById('overlay-player');
             if (st === 'completed') {
-              // reload the page to fetch the new overlayed video URL
-              location.reload();
-              polling = false;
-              return;
+              // reload the page to fetch the new overlayed video URL.
+              // Guard against a reload loop by checking a sessionStorage flag.
+              try {
+                const reloadKey = 'overlay_reloaded_' + (analysisPk || 'unknown');
+                const last = sessionStorage.getItem(reloadKey);
+                const now = Date.now();
+                // If we haven't reloaded within the last 30s, do a reload and record it.
+                if (!last || (now - parseInt(last, 10) > 30 * 1000)) {
+                  sessionStorage.setItem(reloadKey, String(now));
+                  location.reload();
+                  polling = false;
+                  return;
+                } else {
+                  // We've already reloaded recently; avoid another full reload.
+                  // Instead, update the progress/player in-place so the user sees the result.
+                  if (progress) progress.innerHTML = `<p class="text-sm text-green-700">Overlay ready ✅</p>`;
+                  if (player && data && data.overlay_video_url) {
+                    player.innerHTML = `<video controls playsinline class="w-full rounded-lg shadow-lg"><source src="${data.overlay_video_url}" type="video/mp4">Your browser does not support the video tag.</video>`;
+                  }
+                  polling = false;
+                  return;
+                }
+              } catch (e) {
+                // if sessionStorage isn't available for some reason, fall back to reload once
+                try { location.reload(); } catch (er) { /* ignore */ }
+                polling = false;
+                return;
+              }
             } else if (st === 'failed') {
               if (progress) progress.innerHTML = `<p class="text-sm text-red-700">Overlay generation failed: ${err}</p>`;
               if (player) player.innerHTML = `<div class="text-sm text-red-600">Overlay failed — please try reprocessing later.</div>`;
@@ -252,4 +291,5 @@
       } catch (e) {}
     })();
   </script>
+  {# Mapbox shot-distance JS removed per user request #}
 {% endblock %}

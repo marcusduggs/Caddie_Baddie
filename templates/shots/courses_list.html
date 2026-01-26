@@ -15,6 +15,7 @@
               {% endfor %}
             </select>
             <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Round</button>
+            <a href="{% url 'shots:add_course' %}" class="ml-2 bg-[#3a86ff] text-white px-3 py-2 rounded shadow hover:bg-[#264653] transition text-sm">Add Course</a>
           </div>
         {% elif courses %}
           <div class="flex items-center gap-2">
@@ -25,6 +26,7 @@
               {% endfor %}
             </select>
             <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Round</button>
+            <a href="{% url 'shots:add_course' %}" class="ml-2 bg-[#3a86ff] text-white px-3 py-2 rounded shadow hover:bg-[#264653] transition text-sm">Add Course</a>
           </div>
         {% endif %}
       </div>

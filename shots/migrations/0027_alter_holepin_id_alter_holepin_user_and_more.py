@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("shots", "0026_holepin"),
+    ("shots", "0026_holepin"),
     ]
 
     operations = [

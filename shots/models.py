@@ -120,3 +120,45 @@ class ShotRound(models.Model):
             return f"{label} — {self.played_at.date()}"
         return label
 
+
+class ShotDistance(models.Model):
+        """Stores GPS-derived shot locations and computed distances.
+
+        Additive-only model that does not modify existing tables.
+        Fields:
+            - shot (FK to ShotAnalysis) : the analysis record this distance belongs to
+            - hole_number: optional hole number
+            - origin_lat, origin_lng: GPS origin (tee or previous landing)
+            - landing_lat, landing_lng: Landing location selected by user
+            - created_at: timestamp when the record was created
+            - previous_shot: optional FK to another ShotDistance
+        """
+        shot = models.ForeignKey('ShotAnalysis', on_delete=models.CASCADE, related_name='distances')
+        hole_number = models.IntegerField(blank=True, null=True)
+        origin_lat = models.FloatField(null=True, blank=True)
+        origin_lng = models.FloatField(null=True, blank=True)
+        landing_lat = models.FloatField(null=True, blank=True)
+        landing_lng = models.FloatField(null=True, blank=True)
+        previous_shot = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+        created_at = models.DateTimeField(auto_now_add=True)
+
+        def __str__(self):
+                return f"ShotDistance {self.pk} for shot {self.shot_id}"
+
+
+class HolePin(models.Model):
+    """Additive model to persist a saved hole pin location.
+
+    This keeps hole-level pin storage additive and separate from ShotDistance.
+    We store the creating user so pins are scoped per-user and the latest
+    pin for a hole can be used to lock the UI.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    hole_number = models.IntegerField()
+    lat = models.FloatField()
+    lng = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"HolePin hole={self.hole_number} user={self.user_id} ({self.lat},{self.lng})"
+

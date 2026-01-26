@@ -28,6 +28,12 @@ urlpatterns = [
     path('courses/<int:pk>/add-round/', views.add_round, name='add_round'),
     path('courses/<slug:course_slug>/', views.course_holes, name='course_holes'),
     path('courses/<slug:course_slug>/hole/<int:hole>/', views.hole_shots, name='hole_shots'),
+    # Map view for shots on a hole (visualization)
+    path('holes/<int:hole>/shots/map/', views.hole_shot_map, name='hole_shot_map'),
+    # API: accept landing for the last shot on a hole (AJAX)
+    path('api/holes/<int:hole_id>/last-shot/landing/', views.last_shot_landing, name='api_last_shot_landing'),
+    path('api/holes/<int:hole_id>/save-pin/', views.save_hole_pin, name='api_save_hole_pin'),
+    path('api/holes/<int:hole_id>/pin/', views.api_get_hole_pin, name='api_get_hole_pin'),
     # Rounds grouping
     path('rounds/', views.rounds_list, name='rounds_list'),
     path('rounds/<slug:course_slug>/', views.rounds_list, name='rounds_list_for_course'),

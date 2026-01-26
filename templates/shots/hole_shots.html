@@ -23,7 +23,8 @@
         {% endif %}
       </div>
       <div class="flex items-center gap-3">
-        <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to courses</a>
+    <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to courses</a>
+  <a href="{% url 'shots:hole_shot_map' hole=hole %}?course_slug={{ course_slug }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700">View Hole Map</a>
   <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-5 py-2 rounded-md shadow hover:bg-blue-700">Add New Hole</a>
       </div>
     </div>
