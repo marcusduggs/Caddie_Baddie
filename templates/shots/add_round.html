@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-2xl mx-auto p-4">
+    <h2 class="text-2xl font-semibold mb-4">Add Round to {{ course_name }}</h2>
+    {% if error %}
+      <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">{{ error }}</div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+  <input type="hidden" name="to_analyze" value="1" />
+      <label class="block text-sm font-medium text-gray-700">Round name (optional)</label>
+      <div class="mt-2">
+        <input type="text" name="name" class="block w-full p-2 border rounded" placeholder="e.g. Weekend Round" />
+      </div>
+      <label class="block text-sm font-medium text-gray-700 mt-4">Date (optional)</label>
+      <div class="mt-2">
+        <input type="date" name="played_at" class="block p-2 border rounded" />
+      </div>
+
+      <label class="block text-sm font-medium text-gray-700 mt-4">Preferred tee (optional)</label>
+      <div class="mt-2">
+        <input type="text" name="selected_tee" id="selected_tee_input" class="block w-full p-2 border rounded" placeholder="Type a tee color (e.g. Blue, White)" />
+        <p class="text-xs text-gray-500 mt-1">Type the tee color; capitalization doesn't matter. If the typed tee isn't found, the first available tee will be used.</p>
+      </div>
+
+      <div class="mt-4">
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Create Round</button>
+        <a href="{% url 'shots:courses_list' %}" class="ml-4 text-sm text-gray-600">Back</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

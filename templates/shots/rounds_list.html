@@ -6,11 +6,11 @@
       <h2 class="text-2xl font-semibold">My Rounds</h2>
       <div class="flex items-center gap-3">
         <a href="{% url 'shots:courses_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Go Back to Courses</a>
-  {% if fixed_course_name %}
-    <a href="{% url 'shots:analyze_upload' %}?course={{ fixed_course_name|urlencode }}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add New Hole</a>
-  {% else %}
-    <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add New Hole</a>
-  {% endif %}
+        {% if fixed_course_obj_pk %}
+          <a href="{% url 'shots:add_round' fixed_course_obj_pk %}" class="inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Round</a>
+        {% elif fixed_course_name %}
+          <a href="{% url 'shots:analyze_upload' %}?course={{ fixed_course_name|urlencode }}" class="inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Round</a>
+        {% endif %}
       </div>
     </div>
 
@@ -24,12 +24,15 @@
             {% else %}
               <p class="text-sm text-gray-500">&nbsp;</p>
             {% endif %}
-            <div class="mt-3">
+            <div class="mt-3 flex items-center gap-3">
               <a href="{% url 'shots:round_holes' r.pk %}" class="text-sm text-blue-600 hover:underline">View holes</a>
-              <form method="post" action="{% url 'shots:delete_round' r.pk %}" class="inline-block ml-4" onsubmit="return confirmDeleteRound(this)">
+              <form method="post" action="{% url 'shots:delete_round' r.pk %}" class="inline-block" onsubmit="return confirmDeleteRound(this)">
                 {% csrf_token %}
-                <button type="submit" class="text-sm text-red-600 hover:underline">Delete</button>
+                  <button type="submit" class="inline-block bg-red-600 text-white px-3 py-1 rounded text-sm">Delete</button>
               </form>
+              {# Add Hole button: send user to analyze upload with round_id and course prefilled #}
+              {% comment %} Use round.course_name if present, otherwise leave course param empty {% endcomment %}
+                <a href="{% url 'shots:analyze_upload' %}?round_id={{ r.pk }}{% if r.course_name %}&course={{ r.course_name|urlencode }}{% endif %}" class="inline-block bg-green-600 text-white px-3 py-1 rounded text-sm">Add Hole</a>
             </div>
           </div>
         {% endfor %}

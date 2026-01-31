@@ -23,9 +23,16 @@
         {% endif %}
       </div>
       <div class="flex items-center gap-3">
-    <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to courses</a>
-  <a href="{% url 'shots:hole_shot_map' hole=hole %}?course_slug={{ course_slug }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700">View Hole Map</a>
-  <a href="{% url 'shots:analyze_upload' %}" class="inline-block bg-blue-600 text-white px-5 py-2 rounded-md shadow hover:bg-blue-700">Add New Hole</a>
+      {% if back_to_round_url %}
+        <a href="{{ back_to_round_url }}" class="inline-block text-sm text-gray-600 hover:underline">← Back to holes</a>
+      {% else %}
+        <a href="{% url 'shots:courses_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to courses</a>
+      {% endif %}
+    {% if round %}
+      <a href="{% url 'shots:hole_shot_map' hole=hole %}?round_pk={{ round.pk }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700">View Hole Map</a>
+    {% else %}
+      <a href="{% url 'shots:hole_shot_map' hole=hole %}?course_slug={{ course_slug }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700">View Hole Map</a>
+    {% endif %}
       </div>
     </div>
 
@@ -35,7 +42,6 @@
           <div class="bg-white rounded-2xl shadow-lg p-5 border border-gray-100 hover:shadow-xl transition">
             <div class="mb-3">
               <h3 class="text-xl font-semibold text-gray-900">{{ a.club|default:'Unknown club' }}</h3>
-              <p class="text-sm text-gray-500">Uploaded: {{ a.created_at|date:'M d, Y H:i' }}</p>
               <p class="text-sm text-gray-600">Distance: {% if a.distance %}<span class="font-medium">{{ a.distance }} yd</span>{% else %}—{% endif %}</p>
             </div>
             <div class="mb-3">

@@ -7,14 +7,14 @@
       <h2 class="text-2xl font-semibold">My Courses</h2>
       <div class="flex items-center gap-4">
         {% if user_rounds %}
-          <div class="flex items-center gap-2">
-            <select id="quick-round" class="border rounded p-2 text-sm">
-              <option value="">Quick add to a round...</option>
+            <div class="flex items-center gap-2">
+              <select id="quick-round" class="border rounded p-2 text-sm">
+              <option value="">Quick add hole...</option>
               {% for r in user_rounds %}
                 <option data-course-pk="{{ r.course_pk }}" value="{{ r.round_pk }}">{{ r.round_name }} — {{ r.played_at|date:'Y-m-d' }} — {{ r.course_name }}</option>
               {% endfor %}
             </select>
-            <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Round</button>
+            <button id="quick-add-btn" class="bg-green-600 text-white px-3 py-2 rounded">Add Hole</button>
             <a href="{% url 'shots:add_course' %}" class="ml-2 bg-[#3a86ff] text-white px-3 py-2 rounded shadow hover:bg-[#264653] transition text-sm">Add Course</a>
           </div>
         {% elif courses %}
@@ -44,13 +44,13 @@
                 <a href="{% url 'shots:rounds_list_for_course' c.slug %}" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">View Rounds</a>
                 {% if c.pk %}
                   <a href="{% url 'shots:add_round' c.pk %}" class="ml-2 bg-green-600 text-white px-3 py-1 rounded text-sm">Add Round</a>
+                  <form method="post" action="{% url 'shots:delete_course' c.pk %}" onsubmit="return confirm('Delete this course and all its rounds and shots? This cannot be undone.');">
+                    {% csrf_token %}
+                    <button type="submit" class="ml-2 bg-red-600 text-white px-3 py-1 rounded text-sm">Delete Course</button>
+                  </form>
                 {% else %}
                   <a href="{% url 'shots:analyze_upload' %}?course={{ c.name|urlencode }}" class="ml-2 bg-green-600 text-white px-3 py-1 rounded text-sm">Add Round</a>
                 {% endif %}
-                <form method="post" action="{% url 'shots:delete_course' c.pk %}" onsubmit="return confirm('Delete this course and all its rounds and shots? This cannot be undone.');">
-                  {% csrf_token %}
-                  <button type="submit" class="ml-2 bg-red-600 text-white px-3 py-1 rounded text-sm">Delete Course</button>
-                </form>
               </div>
             </div>
 
@@ -67,7 +67,7 @@
                           {% if r.played_at %}<span class="text-xs text-gray-500"> — {{ r.played_at|date:'Y-m-d' }}</span>{% endif %}
                         </div>
                         <div class="text-sm">
-                          <a href="{% url 'shots:round_holes' r.pk %}" class="text-blue-600 hover:underline">View holes</a>
+                          <a href="{% url 'shots:round_holes' r.pk %}" class="inline-block bg-blue-600 text-white px-3 py-1 rounded text-sm">View holes</a>
                         </div>
                       </li>
                     {% endfor %}
@@ -96,7 +96,9 @@
             const selectedOpt = quickRound.options[quickRound.selectedIndex];
             const coursePk = selectedOpt ? selectedOpt.dataset.coursePk : null;
             if (!coursePk) return alert('Course not available for selected round');
-            window.location.href = `/courses/${coursePk}/add-round/?round_id=${roundPk}`;
+            // Navigate to the analyze upload form with course and round prefilled
+            const courseName = encodeURIComponent(selectedOpt ? selectedOpt.text.split(' — ').pop().trim() : '');
+            window.location.href = `/analyze/?round_id=${roundPk}&course=${courseName}`;
             return;
           }
           if (quickCourse && quickCourse.value) {

@@ -41,7 +41,10 @@
               <div class="font-medium">{{ r.name|default:'Round' }}</div>
               {% if r.played_at %}<div class="text-sm text-gray-500">Played: {{ r.played_at|date:"M d, Y" }}</div>{% endif %}
             </div>
-            <div><a href="{% url 'shots:round_holes' r.pk %}" class="text-sm text-blue-600">View</a></div>
+            <div class="flex items-center gap-3">
+              <a href="{% url 'shots:round_holes' r.pk %}" class="inline-block bg-blue-600 text-white px-3 py-1 rounded text-sm">View</a>
+              <a href="{% url 'shots:analyze_upload' %}?round_id={{ r.pk }}{% if r.course_name %}&course={{ r.course_name|urlencode }}{% endif %}" class="inline-block bg-green-600 text-white px-3 py-1 rounded text-sm">Add Hole</a>
+            </div>
           </li>
         {% endfor %}
       </ul>

@@ -20,7 +20,12 @@
     {% endif %}
 
     <div class="mt-4">
-      <a href="{% url 'shots:hole_shots' course_slug=course_slug hole=hole %}" class="text-blue-600 hover:underline">← Back to hole</a>
+      {% if round_pk %}
+        {# Return to the specific hole for this round rather than the round's holes list #}
+        <a href="{% url 'shots:round_hole_shots' round_pk=round_pk hole=hole %}" class="text-blue-600 hover:underline">← Back to hole</a>
+      {% else %}
+        <a href="{% url 'shots:hole_shots' course_slug=course_slug hole=hole %}" class="text-blue-600 hover:underline">← Back to hole</a>
+      {% endif %}
     </div>
   </div>
 {% endblock %}
@@ -63,10 +68,12 @@
               el.style.alignItems = 'center';
               el.style.justifyContent = 'center';
               el.style.fontSize = '12px';
-              el.textContent = String(idx + 1);
+              // Prefer server-assigned 1-based index per displayed shot so numbering
+              // always starts at 1 for this hole. Fall back to idx+1 if index missing.
+              el.textContent = String((s.index !== undefined && s.index !== null) ? s.index : (idx + 1));
               new mapboxgl.Marker(el)
                 .setLngLat([s.lng, s.lat])
-                .setPopup(new mapboxgl.Popup({offset:25}).setText('Shot ' + (idx+1)))
+                .setPopup(new mapboxgl.Popup({offset:25}).setText('Shot ' + ((s.index !== undefined && s.index !== null) ? s.index : (idx+1))))
                 .addTo(map);
             });
 

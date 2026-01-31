@@ -16,7 +16,6 @@
           <div class="bg-white rounded-lg shadow p-4">
             <div class="mb-2">
               <h3 class="text-lg font-medium">{{ a.club|default:'Unknown club' }}</h3>
-              <p class="text-sm text-gray-500">Uploaded: {{ a.created_at|date:'M d, Y H:i' }}</p>
               {% if a.stroke_number %}
                 <p class="text-sm text-gray-600">Stroke: <span class="font-medium">#{{ a.stroke_number }}</span></p>
               {% endif %}
