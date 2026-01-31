@@ -1,7 +1,6 @@
 import os
 import tempfile
-import os
-import tempfile
+import logging
 import math
 import subprocess
 import shutil
@@ -52,7 +51,10 @@ def render_pose_wireframe(input_path: str,
     Raises RuntimeError if mediapipe/opencv are not installed or video cannot be opened.
     """
     if mp is None or cv2 is None:
-        raise RuntimeError('mediapipe and opencv-python are required for pose overlay')
+        # mediapipe or opencv not installed on this machine; skip pose overlay
+        logging.getLogger(__name__).info('mediapipe/opencv not installed; skipping pose overlay')
+        # Returning None signals the caller that no overlay was produced
+        return None
 
     if not os.path.exists(input_path):
         raise FileNotFoundError(f'Input video not found: {input_path}')

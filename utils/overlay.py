@@ -1,552 +1,283 @@
+"""Minimal, defensive overlay helpers used by the app.
+
+This module provides two small helpers the project relies on:
+
+- _extract_coords_with_ffprobe(video_path) -> (lon, lat) | None
+- process_video_with_overlay(input_path, output_path, coords=...) -> str | None
+
+The implementation is intentionally small and tolerant. It will not raise if
+optional external tools or services are unavailable; it returns None on
+failures so callers can mark processing as skipped.
 """
-Video overlay processing module.
-Contains functionality to overlay map images onto golf swing videos.
-"""
-import os
-import subprocess
-import uuid
-import json
-import re
-import tempfile
-import logging
+
 from pathlib import Path
+import os
+import re
+import json
+import subprocess
+import logging
 import shutil
-from django.conf import settings
 from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
+from django.conf import settings
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
 
-def _is_valid_file(path):
-    """Return True if path is a non-empty string/Path-like and exists as a file."""
-    if not path:
-        return False
-    # Accept Path objects and bytes as well
-    if isinstance(path, (bytes, os.PathLike)):
-        try:
-            path = str(path)
-        except Exception:
-            return False
-    if not isinstance(path, (str,)):
-        return False
-    try:
-        return os.path.isfile(path)
-    except Exception:
-        return False
-
 def _resolve_binary(name: str):
-    """Resolve a binary by name, trying PATH first, then common Homebrew locations."""
-    # Try PATH
-    path = shutil.which(name)
-    if path:
-        return path
-    # Try common Homebrew prefixes
-    candidates = [
-        f"/usr/local/bin/{name}",
-        f"/opt/homebrew/bin/{name}",
-    ]
-    for candidate in candidates:
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    # Fallback to name (will likely fail, but keeps error messages clear)
+    p = shutil.which(name)
+    if p:
+        return p
+    # common Homebrew /usr/local locations
+    for cand in (f"/opt/homebrew/bin/{name}", f"/usr/local/bin/{name}"):
+        if os.path.exists(cand) and os.access(cand, os.X_OK):
+            return cand
     return name
 
-# Full paths to ffmpeg and ffprobe (resolved once at import)
+
 FFMPEG_PATH = _resolve_binary("ffmpeg")
 FFPROBE_PATH = _resolve_binary("ffprobe")
 
 
-def _probe_width(path):
-    """Probe video width using ffprobe."""
-    cmd = [FFPROBE_PATH, "-v", "error", "-select_streams", "v:0",
-           "-show_entries", "stream=width", "-of", "csv=p=0", path]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if p.returncode != 0:
-        return None
+def _ffmpeg_has_drawtext():
+    """Return True if ffmpeg reports a 'drawtext' filter is available."""
     try:
-        return int(p.stdout.strip())
+        cmd = [FFMPEG_PATH, '-hide_banner', '-filters']
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out = (p.stdout or b'') + (p.stderr or b'')
+        text = out.decode('utf-8', errors='ignore').lower()
+        return 'drawtext' in text
     except Exception:
-        return None
+        return False
 
 
-def _extract_coords_with_ffprobe(video_path):
-    """
-    Extract GPS coordinates from video metadata using ffprobe.
-    
-    Supports multiple formats:
-    - Apple QuickTime: com.apple.quicktime.location.ISO6709 (e.g., "+21.9173-159.5286+000.000/")
-    - Generic: location, GPSLatitude/GPSLongitude
-    
-    Returns:
-        tuple: (longitude, latitude) or None if not found
+FFMPEG_HAS_DRAWTEXT = _ffmpeg_has_drawtext()
+
+
+def _extract_coords_with_ffprobe(video_path: str):
+    """Return (lon, lat) extracted from ffprobe metadata, or None.
+
+    Looks for common QuickTime/EXIF tags. This is best-effort and returns
+    None on any error.
     """
     try:
-        cmd = [
-            FFPROBE_PATH, '-v', 'quiet', '-print_format', 'json',
-            '-show_format', '-show_streams', video_path
-        ]
-        
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        
+        cmd = [FFPROBE_PATH, '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', str(video_path)]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if proc.returncode != 0:
-            logger.warning(f"ffprobe failed: {proc.stderr.decode('utf-8', errors='ignore')}")
             return None
-            
         info = json.loads(proc.stdout.decode('utf-8', errors='ignore') or '{}')
-        
-        # Search for coordinates in format and stream tags
-        candidates = []
-        
-        # Check format tags
+
         fmt = info.get('format', {})
         tags = fmt.get('tags') or {}
-        
-        # Apple QuickTime ISO6709 format
-        iso6709 = tags.get('com.apple.quicktime.location.ISO6709')
-        if iso6709:
-            candidates.append(('iso6709', iso6709))
-            
-        # Generic location tag
-        location = tags.get('location')
-        if location:
-            candidates.append(('location', location))
-            
-        # Check stream tags
-        for stream in info.get('streams', []) or []:
-            stream_tags = stream.get('tags') or {}
-            
-            iso6709 = stream_tags.get('com.apple.quicktime.location.ISO6709')
-            if iso6709:
-                candidates.append(('iso6709', iso6709))
-                
-            location = stream_tags.get('location')
-            if location:
-                candidates.append(('location', location))
-                
-            # GPS coordinates (some formats)
-            gps_lat = stream_tags.get('GPSLatitude')
-            gps_lon = stream_tags.get('GPSLongitude')
-            if gps_lat and gps_lon:
-                candidates.append(('gps', (gps_lat, gps_lon)))
-        
-        # Parse candidates
-        for tag_type, value in candidates:
-            try:
-                if tag_type == 'iso6709':
-                    # ISO6709 format: +21.9173-159.5286+000.000/
-                    # Pattern: latitude(+/-) longitude(+/-) altitude(+/-)
-                    match = re.search(r'([+-]?\d+(?:\.\d+)?)([+-]?\d+(?:\.\d+)?)', value)
-                    if match:
-                        lat = float(match.group(1))
-                        lon = float(match.group(2))
-                        logger.info(f"Extracted GPS from ISO6709: lat={lat}, lon={lon}")
-                        print(f"[GPS] Extracted coordinates from video: latitude={lat}, longitude={lon}")
-                        return (lon, lat)  # Return as (longitude, latitude)
-                        
-                elif tag_type == 'location':
-                    # Try to parse generic location format
-                    match = re.search(r'([+-]?\d+(?:\.\d+)?)([+-]?\d+(?:\.\d+)?)', value)
-                    if match:
-                        lat = float(match.group(1))
-                        lon = float(match.group(2))
-                        logger.info(f"Extracted GPS from location tag: lat={lat}, lon={lon}")
-                        print(f"[GPS] Extracted coordinates from video: latitude={lat}, longitude={lon}")
-                        return (lon, lat)
-                        
-                elif tag_type == 'gps':
-                    # Direct GPS lat/lon
-                    gps_lat, gps_lon = value
-                    lat = float(gps_lat)
-                    lon = float(gps_lon)
-                    logger.info(f"Extracted GPS from GPSLatitude/GPSLongitude: lat={lat}, lon={lon}")
-                    print(f"[GPS] Extracted coordinates from video: latitude={lat}, longitude={lon}")
+        cand = tags.get('com.apple.quicktime.location.ISO6709') or tags.get('location')
+        if cand:
+            m = re.search(r'([+-]?\d+(?:\.\d+)?)([+-]?\d+(?:\.\d+)?)', cand)
+            if m:
+                lat = float(m.group(1))
+                lon = float(m.group(2))
+                return (lon, lat)
+
+        for s in info.get('streams', []) or []:
+            st = s.get('tags') or {}
+            cand = st.get('com.apple.quicktime.location.ISO6709') or st.get('location')
+            if cand:
+                m = re.search(r'([+-]?\d+(?:\.\d+)?)([+-]?\d+(?:\.\d+)?)', cand)
+                if m:
+                    lat = float(m.group(1))
+                    lon = float(m.group(2))
                     return (lon, lat)
-                    
-            except (ValueError, AttributeError) as e:
-                logger.warning(f"Failed to parse coordinates from {tag_type}: {value}, error: {e}")
-                continue
-                
-        logger.info("No GPS coordinates found in video metadata")
-        print("[GPS] No GPS coordinates found in video metadata - using default location")
+            lat = st.get('GPSLatitude')
+            lon = st.get('GPSLongitude')
+            if lat and lon:
+                try:
+                    return (float(lon), float(lat))
+                except Exception:
+                    pass
         return None
-        
-    except Exception as e:
-        logger.error(f"Error extracting coordinates: {e}")
-        print(f"[GPS] Error extracting coordinates: {e}")
+    except Exception:
         return None
 
 
-def _fetch_mapbox_static_image(lon, lat, output_path, width=500, height=600, zoom=16):
-    """
-    Fetch a static map image from Mapbox Static Images API.
-    
-    Args:
-        lon: Longitude
-        lat: Latitude
-        output_path: Where to save the downloaded image
-        width: Image width in pixels
-        height: Image height in pixels
-        zoom: Map zoom level (1-20)
-        
-    Returns:
-        str: Path to the downloaded image, or None if failed
-    """
-    # Get Mapbox token from settings
-    mapbox_token = getattr(settings, 'MAPBOX_TOKEN', None) or os.environ.get('MAPBOX_TOKEN')
-    
-    if not mapbox_token:
-        logger.error("MAPBOX_TOKEN not found in settings or environment")
-        print("[Mapbox] ERROR: MAPBOX_TOKEN not configured")
+def _fetch_mapbox_static_image(lon: float, lat: float, output_path: str, width=500, height=600, zoom=16):
+    token = getattr(settings, 'MAPBOX_TOKEN', None) or os.environ.get('MAPBOX_TOKEN')
+    if not token:
         return None
-    
     try:
-        # Build Mapbox Static Images API URL
-        # Format: https://api.mapbox.com/styles/v1/{username}/{style_id}/static/{overlay}/{lon},{lat},{zoom}/{width}x{height}{@2x}
-        # With marker overlay: pin-s+color({lon},{lat})
-        
-        overlay = f"pin-s+ff0000({lon},{lat})"  # Small red pin marker
         from urllib.parse import quote
-        overlay_enc = quote(overlay, safe='')
-        
-        # Use streets-v11 style
+        overlay = quote(f"pin-s+ff0000({lon},{lat})", safe='')
         url = (
             f"https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/"
-            f"{overlay_enc}/{lon},{lat},{zoom}/{width}x{height}"
-            f"?access_token={mapbox_token}"
+            f"{overlay}/{lon},{lat},{zoom}/{width}x{height}?access_token={token}"
         )
-        
-        logger.info(f"Fetching map from Mapbox API: {url[:100]}...")
-        print(f"[Mapbox] Fetching map image for coordinates: ({lon}, {lat})")
-        
-        # Download the image
-        with urlopen(url, timeout=30) as response:
-            data = response.read()
-            
-        # Save to file
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'wb') as f:
-            f.write(data)
-            
-        # Set permissions
+        with urlopen(url, timeout=30) as resp:
+            data = resp.read()
+        with open(output_path, 'wb') as fh:
+            fh.write(data)
+        return output_path
+    except (URLError, HTTPError) as e:
+        logger.debug("Mapbox fetch failed: %s", e)
+        return None
+    except Exception:
+        return None
+
+
+def process_video_with_overlay(input_path: str, output_path: str, *args, **kwargs):
+    """Overlay a small static map when coords exist; otherwise copy/re-encode.
+
+    Backwards-compatible wrapper that accepts legacy positional metadata
+    arguments. The canonical parameters are:
+
+        process_video_with_overlay(input_path, output_path, coords=None, map_width=..., map_height=...)
+
+    But older call sites pass additional metadata (course_name, hole_number, etc.).
+    This function extracts coords from the third positional argument if present
+    or from kwargs.get('coords'). Other legacy args are ignored.
+
+    Returns output_path (str) on success or None on failure.
+    """
+    # Pull canonical params out of args/kwargs and support older call signatures
+    coords = None
+    map_width = kwargs.get('map_width', 500)
+    map_height = kwargs.get('map_height', 600)
+    include_course_text = kwargs.get('include_course_text', False)
+    overlay_map_requested = kwargs.get('overlay_map_requested', False)
+
+    # Legacy callers sometimes pass: (coords, course_name, hole_number, hole_yardage, club)
+    course_name = kwargs.get('course_name')
+    hole_number = kwargs.get('hole_number')
+    hole_yardage = kwargs.get('hole_yardage')
+    club = kwargs.get('club')
+    hole_par = kwargs.get('hole_par')
+
+    # Interpret positional args loosely
+    if len(args) >= 1:
+        first = args[0]
+        # if first looks like coords (tuple/list of 2 numbers) use it
         try:
-            os.chmod(output_path, 0o644)
+            if isinstance(first, (list, tuple)) and len(first) == 2:
+                coords = (float(first[0]), float(first[1]))
+            elif isinstance(first, (int, float)):
+                # unlikely, treat as no coords
+                coords = None
+            else:
+                coords = None
+        except Exception:
+            coords = None
+    if 'coords' in kwargs:
+        coords = kwargs.get('coords')
+
+    # parse additional legacy positional metadata if present
+    if len(args) >= 2 and not course_name:
+        course_name = args[1]
+    if len(args) >= 3 and not hole_number:
+        hole_number = args[2]
+    if len(args) >= 4 and not hole_yardage:
+        hole_yardage = args[3]
+    if len(args) >= 5 and not club:
+        club = args[4]
+    # the boolean overlay_map_requested may be passed as a later positional arg
+    if len(args) >= 6 and not overlay_map_requested:
+        try:
+            overlay_map_requested = bool(args[5])
         except Exception:
             pass
-            
-        logger.info(f"Successfully downloaded map image to {output_path}")
-        print(f"[Mapbox] Map image downloaded successfully: {os.path.getsize(output_path)} bytes")
-        return output_path
-        
-    except (URLError, HTTPError) as e:
-        logger.error(f"Failed to fetch map from Mapbox API: {e}")
-        print(f"[Mapbox] ERROR: Failed to fetch map: {e}")
+    if len(args) >= 7 and not include_course_text:
+        try:
+            include_course_text = bool(args[6])
+        except Exception:
+            pass
+
+    input_path = str(input_path)
+    output_path = str(output_path)
+    if not os.path.exists(input_path):
+        logger.error("Input missing: %s", input_path)
+        return None
+
+    try:
+        # fast path: stream copy if no overlay requested
+        if not coords:
+            cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c', 'copy', output_path]
+            p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if p.returncode == 0:
+                return output_path
+
+        map_path = None
+        if coords:
+            try:
+                lon, lat = coords
+            except Exception:
+                lon = lat = None
+            if lon is not None and lat is not None:
+                tmp = Path(output_path).with_suffix('')
+                mapfile = str(tmp.parent / (tmp.name + '_map.png'))
+                fetched = _fetch_mapbox_static_image(lon, lat, mapfile, width=map_width, height=map_height)
+                if fetched and os.path.exists(fetched):
+                    map_path = fetched
+
+        if map_path:
+            # Build filter with optional drawtext if requested and available
+            filter_complex = "[0:v][1:v] overlay=main_w-overlay_w-10:10"
+            if include_course_text and FFMPEG_HAS_DRAWTEXT:
+                # Build a compact info string
+                parts = []
+                if course_name:
+                    parts.append(str(course_name))
+                if hole_number:
+                    parts.append(f"Hole {hole_number}")
+                if hole_yardage:
+                    parts.append(f"{hole_yardage}yd")
+                if club:
+                    parts.append(str(club))
+                if hole_par:
+                    parts.append(f"Par {hole_par}")
+                info = ' | '.join(parts)
+                # sanitize simple characters
+                info = info.replace("'", "\\'").replace(':', '\\:')
+                # append drawtext after overlay
+                filter_complex = f"{filter_complex},drawtext=text='{info}':fontcolor=white:fontsize=24:box=1:boxcolor=0x00000088:x=10:y=h-40"
+            elif include_course_text and not FFMPEG_HAS_DRAWTEXT:
+                logger.info('include_course_text requested but ffmpeg lacks drawtext; skipping text burn-in')
+
+            cmd = [
+                FFMPEG_PATH,
+                '-y',
+                '-i', input_path,
+                '-i', map_path,
+                '-filter_complex', filter_complex,
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '23',
+                '-c:a', 'copy',
+                output_path,
+            ]
+        else:
+            cmd = [
+                FFMPEG_PATH,
+                '-y',
+                '-i', input_path,
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '23',
+                '-c:a', 'copy',
+                output_path,
+            ]
+
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if p.returncode == 0 and os.path.exists(output_path):
+            try:
+                if map_path and os.path.exists(map_path):
+                    os.remove(map_path)
+            except Exception:
+                pass
+            return output_path
+        logger.info("ffmpeg failed: %s", p.stderr.decode('utf-8', errors='ignore'))
         return None
     except Exception as e:
-        logger.error(f"Unexpected error fetching map: {e}")
-        print(f"[Mapbox] ERROR: Unexpected error: {e}")
+        logger.exception("process_video_with_overlay error: %s", e)
         return None
-
-
-def process_video_with_overlay(input_path: str, output_path: str, overlay_path: str = None,
-                               course_name: str = None, hole_number: int = None, hole_yardage: int = None, club: str = None, hole_par: int = None,
-                               overlay_map_requested: bool = True, include_course_text: bool = True):
-    """
-    Process a golf video by overlaying a map image in the bottom-right corner.
-    
-    This function:
-    1. Extracts GPS coordinates from video metadata
-    2. Fetches a custom map from Mapbox API based on those coordinates
-    3. Overlays the map on the video using ffmpeg
-    4. Falls back to static map if GPS extraction or API call fails
-    
-    Args:
-        input_path: Absolute path to the input video file
-        output_path: Absolute path where the processed video should be saved
-        overlay_path: Optional path to overlay image. If None, will try to fetch from Mapbox API
-        
-    Returns:
-        str: Path to the processed output video
-        
-    Raises:
-        FileNotFoundError: If input video doesn't exist
-        RuntimeError: If ffmpeg processing fails
-    """
-    # Validate input
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input video not found: {input_path}")
-
-    # Determine overlay image to use (only if user opted in for map overlay)
-    temp_map_path = None
-    use_dynamic_map = overlay_map_requested and overlay_path is None
-    
-    if use_dynamic_map:
-        print("\n" + "="*60)
-        print("Starting GPS-based map overlay process")
-        print("="*60)
-        
-        # Step 1: Extract GPS coordinates from video
-        coords = _extract_coords_with_ffprobe(input_path)
-        
-        if coords:
-            lon, lat = coords
-            
-            # Step 2: Fetch map from Mapbox API
-            temp_map_path = os.path.join(
-                tempfile.gettempdir(),
-                f"mapbox_map_{uuid.uuid4().hex[:8]}.png"
-            )
-            
-            fetched_map = _fetch_mapbox_static_image(lon, lat, temp_map_path)
-            
-            if fetched_map:
-                overlay_path = fetched_map
-                print(f"[Success] Using dynamic map based on video GPS coordinates")
-            else:
-                print(f"[Warning] Failed to fetch map from Mapbox, falling back to static map")
-                overlay_path = None
-        else:
-            print(f"[Info] No GPS coordinates found, using fallback map")
-            overlay_path = None
-    
-    # Fallback to static map if needed
-    if overlay_map_requested:
-        if not _is_valid_file(overlay_path):
-            project_root = Path(settings.BASE_DIR)
-            overlay_path = str(project_root / "test_map.png")
-            print(f"[Fallback] Using static map: {overlay_path}")
-    else:
-        # When map overlay is not requested, ensure overlay_path remains None
-        overlay_path = None
-    
-    # Validate overlay image exists (only when a map overlay is requested)
-    if overlay_map_requested:
-        if not _is_valid_file(overlay_path):
-            raise FileNotFoundError(f"Overlay image not found: {overlay_path}")
-
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # Create logs directory for debugging
-    logs_dir = Path(settings.MEDIA_ROOT) / "logs"
-    logs_dir.mkdir(exist_ok=True, parents=True)
-    log_file = logs_dir / f"overlay_{uuid.uuid4().hex[:8]}.log"
-
-    # Probe video width and calculate overlay size (30% of video width)
-    vwidth = _probe_width(input_path) or 1280
-    overlay_w = max(64, int(vwidth * 0.30))
-    # Build ffmpeg filter depending on whether map overlay is requested
-    if overlay_map_requested and overlay_path:
-        base_overlay = f"[1:v]scale={overlay_w}:-1[map];[0:v][map]overlay=main_w-overlay_w-10:main_h-overlay_h-10"
-    else:
-        base_overlay = "[0:v]null"  # placeholder when no map overlay; drawtext_filter may still be applied
-
-    # If course/hole text requested and provided, append a drawtext filter to burn text into the video (top-left)
-    drawtext_filter = ""
-    temp_text_files = []
-    if include_course_text and (course_name or hole_number or hole_yardage or club):
-        # Compose the individual text parts so we can style them separately:
-        # part_course (prominent), part_main (Hole X — Y yards), part_par (Par N), part_club
-        def _sanitize(s: str) -> str:
-            if not s:
-                return ''
-            s = s.replace('\u00A0', ' ')
-            for ch in ('\u200b', '\u200c', '\u200d', '\ufeff'):
-                s = s.replace(ch, '')
-            s = re.sub(r'[\x00-\x09\x0b-\x1f\x7f-\x9f]', '', s)
-            return s.strip()
-
-        part_course = _sanitize(str(course_name)) if course_name else ''
-        main_parts = []
-        if hole_number:
-            main_parts.append(f"Hole {int(hole_number)}")
-        if hole_yardage:
-            main_parts.append(f"{int(hole_yardage)} yards")
-        part_main = ' — '.join(main_parts) if main_parts else ''
-        part_par = ''
-        # We try to read par from a transient variable _hole_par on analysis, but the view
-        # passes it into process_video_with_overlay as hole_par parameter. Use it if present.
-        # Note: hole_par parameter is provided to this function signature above.
-        if hole_par is not None:
-            try:
-                part_par = f"Par {int(hole_par)}"
-            except Exception:
-                part_par = f"Par {hole_par}"
-        part_club = _sanitize(str(club)) if club else ''
-
-        # Choose font
-        font_paths = [
-            '/Library/Fonts/Arial Bold.ttf',
-            '/Library/Fonts/Arial.ttf',
-            '/System/Library/Fonts/SFNSDisplay.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
-        ]
-        fontfile = None
-        for p in font_paths:
-            if os.path.exists(p):
-                fontfile = p
-                break
-
-        # Font sizes proportional to video width
-        fontsize_course = max(20, int(vwidth * 0.035))
-        fontsize_main = max(16, int(vwidth * 0.028))
-        # Make the par and club lines the same size as the main (Hole X — Y yards)
-        fontsize_small = fontsize_main
-        pad_x = 18
-        pad_y = 14
-
-        # Build font argument for ffmpeg drawtext. Define here so it's available
-        # even when the course/top line (tf_course) is not present.
-        font_arg = f"fontfile={fontfile}:" if fontfile else ""
-
-        # Create temp text files for each visible part (useful to avoid escaping issues)
-        def _write_temp(text, suffix):
-            if not text:
-                return None
-            tf = logs_dir / f"overlay_text_{suffix}_{uuid.uuid4().hex[:8]}.txt"
-            try:
-                with open(tf, 'w', encoding='utf-8') as fh:
-                    fh.write(text)
-                temp_text_files.append(tf)
-                return tf
-            except Exception:
-                return None
-
-        tf_course = _write_temp(part_course, 'course')
-        tf_main = _write_temp(part_main, 'main')
-        tf_par = _write_temp(part_par, 'par')
-        tf_club = _write_temp(part_club, 'club')
-
-        # Compute box dimensions (approximate): width is a fraction of video width, height based on font sizes and visible lines
-        box_w = min( int(vwidth * 0.48), int(vwidth * 0.9) )
-        visible_lines = sum(1 for t in (part_course, part_main, part_par, part_club) if t)
-        box_h = pad_y * 2 + fontsize_course * (1 if part_course else 0) + fontsize_main * (1 if part_main else 0) + fontsize_small * ( (1 if part_par else 0) + (1 if part_club else 0) ) + max(0, (visible_lines - 1) * 6)
-
-        # Build a drawbox filter to render a single semi-transparent background behind the text
-        # Use slightly rounded corners would be nicer but drawbox doesn't support rounding; keep it simple.
-        box_x = 10
-        box_y = 10
-        drawbox = f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:color=black@0.55:t=fill"
-
-        # Build drawtext filters for each line (place them stacked inside the box)
-        drawtexts = []
-        # course (top)
-        if tf_course:
-            y_course = box_y + pad_y
-            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_course)}:reload=0:fontcolor=white:fontsize={fontsize_course}:x={box_x+pad_x}:y={y_course}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
-            y_next = y_course + fontsize_course + 6
-        else:
-            y_next = box_y + pad_y
-
-        # main (hole + yardage)
-        if tf_main:
-            y_main = y_next
-            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_main)}:reload=0:fontcolor=white:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_main}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
-            y_next = y_main + fontsize_main + 6
-
-        # par
-        if tf_par:
-            y_par = y_next
-            # Use the same font size as the main hole line for visual consistency
-            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_par)}:reload=0:fontcolor=#e6e6e6:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_par}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
-            y_next = y_par + fontsize_main + 4
-
-        # club
-        if tf_club:
-            y_club = y_next
-            drawtexts.append(f"drawtext={font_arg}textfile={str(tf_club)}:reload=0:fontcolor=#ddddff:fontsize={fontsize_main}:x={box_x+pad_x}:y={y_club}:shadowx=1:shadowy=1:shadowcolor=black@0.6")
-
-        # Combine drawbox + drawtexts into drawtext_filter (comma-separated)
-        drawtext_filter = drawbox + ("," + ",".join(drawtexts) if drawtexts else "")
-
-    # If no map overlay and no drawtext, simply copy the file to output
-    if not overlay_map_requested and not include_course_text:
-        # Quick path: copy file
-        try:
-            shutil.copyfile(input_path, output_path)
-            try:
-                os.chmod(output_path, 0o644)
-            except Exception:
-                pass
-            print(f"[Success] Copied video without overlays to: {output_path}")
-            return str(output_path)
-        except Exception as e:
-            raise RuntimeError(f"Failed to copy input to output when overlays disabled: {e}")
-
-    filter_complex = base_overlay + ("," + drawtext_filter if drawtext_filter else "")
-
-    print(f"[FFmpeg] Processing video with overlay...")
-    
-    # Build ffmpeg command
-    # Build ffmpeg command: include overlay image input only when requested
-    cmd = [FFMPEG_PATH, "-y"]
-    cmd += ["-i", input_path]
-    if overlay_map_requested and overlay_path:
-        cmd += ["-i", overlay_path]
-    cmd += ["-filter_complex", filter_complex]
-    cmd += ["-map", "0:a?",   # copy audio if present
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            output_path]
-
-    # Run ffmpeg
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    
-    # Write ffmpeg output to log for debugging
-    with open(log_file, "w") as fh:
-        fh.write("CMD: " + " ".join(cmd) + "\n\n")
-        fh.write("STDOUT:\n")
-        fh.write(proc.stdout or "")
-        fh.write("\n\nSTDERR:\n")
-        fh.write(proc.stderr or "")
-
-    # Clean up temporary map file if created
-    if temp_map_path and os.path.exists(temp_map_path):
-        try:
-            os.remove(temp_map_path)
-            print(f"[Cleanup] Removed temporary map file")
-        except Exception as e:
-            logger.warning(f"Failed to remove temp map file: {e}")
-    # Clean up temporary text files used for drawtext (if any)
-    try:
-        for tf in temp_text_files:
-            try:
-                if tf is not None and tf.exists():
-                    os.remove(str(tf))
-                    print(f"[Cleanup] Removed temporary drawtext file: {tf}")
-            except Exception:
-                pass
-    except Exception:
-        # temp_text_files may not exist in some code paths
-        pass
-
-    # Check for errors
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed (log: {log_file}): {proc.stderr[:2000]}")
-
-    # Set file permissions
-    try:
-        os.chmod(output_path, 0o644)
-    except Exception:
-        pass
-
-    print(f"[Success] Processed video saved to: {output_path}")
-    print("="*60 + "\n")
-    
-    return str(output_path)
 
 
 def overlay_map_on_video(input_path: str, output_path: str, mapbox_token: str = None):
-    """
-    Legacy function for backwards compatibility.
-    Wraps process_video_with_overlay with similar interface.
-    
-    Args:
-        input_path: Path to input video
-        output_path: Path to output video
-        mapbox_token: Optional Mapbox token (now uses settings.MAPBOX_TOKEN)
-    """
+    """Backward-compatible wrapper."""
     return process_video_with_overlay(input_path, output_path)

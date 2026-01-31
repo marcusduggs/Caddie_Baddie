@@ -222,14 +222,18 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
                 os.close(fd)
                 try:
                     overlay_path = render_pose_wireframe(output_path, output_path=overlay_tmp)
-                    if overlay_path and os.path.exists(overlay_path):
-                        # Only attach the overlayed file if it is non-empty. Some renderer
-                        # failures leave an empty file behind; we must avoid overwriting
-                        # a valid processed video with a zero-byte file.
+                    # If render_pose_wireframe() returns None it indicates the
+                    # runtime support for pose overlays is not available (e.g.
+                    # mediapipe/opencv missing). Treat this as a skipped step so
+                    # the processed video remains usable.
+                    if overlay_path is None:
+                        sa.overlay_status = 'skipped'
+                        sa.overlay_error_message = 'Pose overlay not available on this system.'
+                    elif overlay_path and os.path.exists(overlay_path):
+                        # Only attach the overlayed file if it is non-empty.
                         try:
                             if os.path.getsize(overlay_path) > 0:
                                 with open(overlay_path, 'rb') as ofp:
-                                    # Use the same filename as the original processed output so URLs remain stable.
                                     sa.processed_video.save(os.path.basename(output_path), File(ofp), save=False)
                                 sa.overlay_status = 'completed'
                                 sa.overlay_error_message = ''
