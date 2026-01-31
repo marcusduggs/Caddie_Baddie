@@ -3,15 +3,38 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Use environment variable for SECRET_KEY in production
-SECRET_KEY = os.environ.get('SECRET_KEY', 'replace-this-with-a-secure-key-for-production')
+# Use environment variable for SECRET_KEY in production (fallback to a dev-only key)
+# Prefer setting DJANGO_SECRET_KEY in your environment rather than committing a secret here.
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY') or 'dev-only-insecure-secret-change-me'
 
-# Use environment variable for DEBUG
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+# Use environment variable for DEBUG (default True for local development)
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') in ('1', 'True', 'true')
 
 # Allowed hosts
-# For local development, allow all. In production, set explicitly via env.
+# In development it's often convenient to allow all, but in production set a comma-separated list via ALLOWED_HOSTS
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
+
+# Security hardening toggles (applied only when DEBUG is False)
+if not DEBUG:
+    # Redirect all non-HTTPS requests to HTTPS
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') in ('1', 'True', 'true')
+    # HTTP Strict Transport Security (HSTS)
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'True') in ('1', 'True', 'true')
+    SECURE_HSTS_PRELOAD = os.environ.get('SECURE_HSTS_PRELOAD', 'False') in ('1', 'True', 'true')
+    # Secure-only cookies
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True') in ('1', 'True', 'true')
+    CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') in ('1', 'True', 'true')
+    # Set this if you're behind a proxy that sets X-Forwarded-Proto
+    # Example: SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    proxy_header = os.environ.get('SECURE_PROXY_SSL_HEADER')
+    if proxy_header:
+        try:
+            parts = proxy_header.split(',')
+            if len(parts) == 2:
+                SECURE_PROXY_SSL_HEADER = (parts[0].strip(), parts[1].strip())
+        except Exception:
+            pass
 # Use BigAutoField by default to silence warnings about AutoField
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

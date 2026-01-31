@@ -112,6 +112,8 @@ class ShotRound(models.Model):
     course_name = models.CharField(max_length=200, blank=True, null=True)
     hole_number = models.IntegerField(blank=True, null=True)
     played_at = models.DateTimeField(blank=True, null=True)
+    # Tee selected for this round (e.g., Blue, White). Used to prefill uploads attached to this round.
+    selected_tee = models.CharField(max_length=64, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

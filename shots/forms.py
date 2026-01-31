@@ -36,7 +36,7 @@ class ShotAnalysisForm(forms.ModelForm):
     distance = forms.FloatField(required=False, label='Distance (yards)', widget=forms.NumberInput(attrs={'placeholder': 'e.g. 120'}))
     # Golf course + hole info to enrich overlays (course left editable but not labeled as optional)
     course = forms.CharField(required=False, max_length=200, label='Course', widget=forms.TextInput(attrs={'placeholder': 'Course name, e.g. Pebble Beach'}))
-    hole = forms.IntegerField(required=False, min_value=1, max_value=18, label='Hole (optional)', widget=forms.NumberInput(attrs={'placeholder': 'Hole number (1-18)'}))
+    hole = forms.IntegerField(required=True, min_value=1, max_value=18, label='Hole', widget=forms.NumberInput(attrs={'placeholder': 'Hole number (1-18)'}))
     # Tee selection: let user pick a tee set; default blank means 'any'
     TEE_CHOICES = [
         ('', 'Any'),

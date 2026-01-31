@@ -38,39 +38,22 @@
   <form method="post" action="{% url 'shots:analyze_upload' %}" enctype="multipart/form-data" class="bg-white p-4 rounded shadow mb-6">
       {% csrf_token %}
 
-  <!-- Round selection / new round creation -->
+  <!-- Round selection (existing only) -->
       <div class="max-w-2xl mx-auto mb-4">
-        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 {% if fixed_course %}Round{% else %}Round (optional){% endif %}</label>
+        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 Round</label>
 
-        <!-- Mode toggle buttons -->
-        <div id="round-mode-toggle" class="mb-3 flex gap-2">
-          <button type="button" id="btn-existing-round" aria-pressed="true" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-green-600 text-white text-sm">Choose existing round</button>
-          <button type="button" id="btn-new-round" aria-pressed="false" class="toggle-btn px-3 py-1 rounded border border-gray-300 bg-white text-gray-700 text-sm">Create new round</button>
-        </div>
-
-        <!-- Existing round selector (default visible) -->
         <div id="existing-round-mode">
           <select name="round_id" id="round-select" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2 mb-2">
             <option value="">Choose existing round</option>
             {% for r in rounds %}
-              <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}" {% if selected_round_id and selected_round_id|stringformat:'s' == r.pk|stringformat:'s' %}selected{% endif %}>{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
+              <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}" data-selected-tee="{{ r.selected_tee|default:'' }}" {% if selected_round_id and selected_round_id|stringformat:'s' == r.pk|stringformat:'s' %}selected{% endif %}>{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
             {% empty %}
               <!-- no existing rounds -->
             {% endfor %}
           </select>
+          <p class="mt-1 text-sm text-gray-500">Attach uploads to an existing round.</p>
+          <div id="selected-round-display" class="mt-2 text-sm text-gray-700 hidden"></div>
         </div>
-
-        <!-- New round inputs (hidden by default) -->
-        <div id="new-round-mode" class="hidden">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <input type="text" name="new_round_name" id="new-round-name" placeholder="{% if fixed_course %}New round name{% else %}New round name (optional){% endif %}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
-            <input type="date" name="new_round_played_at" id="new-round-played-at" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
-          </div>
-        </div>
-
-        <p class="mt-1 text-sm text-gray-500">Optional — attach uploads to an existing round or create a new one.</p>
-        <div class="mt-2 text-sm text-gray-600">Pick an existing round from the menu or use <strong>Create new round</strong> to start a fresh round.</div>
-        <div id="selected-round-display" class="mt-2 text-sm text-gray-700 hidden"></div>
       </div>
       
       <div class="space-y-4">
@@ -104,7 +87,7 @@
         <!-- Hole number (optional) -->
         <div>
           <label for="id_hole" class="block text-sm font-medium text-gray-700 mb-2">
-            ⛳ {% if fixed_course %}Hole{% else %}Hole (optional){% endif %}
+            ⛳ Hole
           </label>
           <input type="number" name="hole" id="id_hole" min="1" max="18" placeholder="Hole number (1-18)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
         </div>
@@ -123,23 +106,11 @@
                   {% endfor %}
                 {% endif %}
           </select>
+          <div id="round-tee-locked" class="mt-2 text-sm text-gray-600 hidden">Round tee locked: <span id="round-tee-val"></span></div>
             <div class="mt-2 flex items-center gap-3">
               <p id="tee-status" class="text-sm text-gray-500">Tee options not loaded.</p>
-              <button type="button" id="reload-tees-btn" class="px-2 py-1 text-xs rounded border bg-gray-50">Load tees</button>
-              <button type="button" id="toggle-teepayload-btn" class="px-2 py-1 text-xs rounded border bg-gray-50">Show payload</button>
             </div>
-            <!-- Optional overlays: make course/map optional like the pose wireframe -->
-            <div class="mt-3 flex flex-col sm:flex-row sm:items-center sm:gap-4">
-              <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" id="id_include_map" name="include_map" class="h-4 w-4 text-green-600 rounded" />
-                <span>Include course map overlay (API)</span>
-              </label>
-              <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" id="id_include_text" name="include_course_text" class="h-4 w-4 text-green-600 rounded" />
-                <span>Burn course name/hole text into processed video</span>
-              </label>
-            </div>
-            <pre id="tee-payload-debug" class="mt-2 p-2 bg-black text-white text-xs overflow-auto hidden" style="max-height:200px;"></pre>
+            <!-- Overlays are not selectable at upload; add them later on the shot detail page -->
           <p class="mt-1 text-sm text-gray-500">Pick a tee set — required before uploading so yardages and overlays are accurate.</p>
         </div>
         
@@ -160,11 +131,7 @@
             onchange="handleFileSelect(this)"
           >
           <p class="mt-2 text-sm text-gray-500">📱 Choose from camera roll or record new video</p>
-          <!-- Overlay toggle -->
-          <div class="mt-3 flex items-center gap-3">
-            <input type="checkbox" id="id_overlay_pose" name="overlay_pose" value="1" class="h-4 w-4 text-green-600 rounded" />
-            <label for="id_overlay_pose" class="text-sm text-gray-700">Add swing wireframe overlay to processed video</label>
-          </div>
+          <!-- overlay option moved above file input so all options are grouped together -->
           <p id="file-info" class="mt-2 text-sm text-blue-600 hidden"></p>
           <p class="mt-2 text-sm text-gray-500">Files will be ordered by capture time; per-file club/distance stay attached to the file you selected.</p>
           <div id="per-file-meta" class="mt-4 space-y-3"></div>
@@ -307,25 +274,7 @@
             </div>
             <div class="mt-2 grid grid-cols-1 sm:grid-cols-1 gap-3">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">Club</label>
-                <select name="club_${i}" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
-                  <option value="">Select club</option>
-                  <option value="Driver">Driver</option>
-                  <option value="3-wood">3-wood</option>
-                  <option value="5-wood">5-wood</option>
-                  <option value="3-iron">3-iron</option>
-                  <option value="4-iron">4-iron</option>
-                  <option value="5-iron">5-iron</option>
-                  <option value="6-iron">6-iron</option>
-                  <option value="7-iron">7-iron</option>
-                  <option value="8-iron">8-iron</option>
-                  <option value="9-iron">9-iron</option>
-                  <option value="PW">PW</option>
-                  <option value="SW">SW</option>
-                  <option value="LW">LW</option>
-                  <option value="Putter">Putter</option>
-                  <option value="Other">Other</option>
-                </select>
+                <p class="text-xs text-gray-600">Club can be selected later on the shot detail page.</p>
               </div>
             </div>
             <input type="hidden" name="upload_time_${i}" value="${fallback ? new Date(f.lastModified).toISOString() : new Date().toISOString()}" />
@@ -348,15 +297,14 @@
 
       // Disable file input until a round is selected or a new round name is provided
       const fileInput = document.getElementById('{{ form.input_video.id_for_label }}');
-      function updateFileInputState() {
+          function updateFileInputState() {
         try {
           const roundSel = document.querySelector('select[name="round_id"]');
           const newRnd = document.querySelector('input[name="new_round_name"]');
           const teeSel = document.querySelector('select[name="selected_tee"]');
-          // require a round/new round and a selected tee before enabling file input
+          // require a round/new round before enabling file input; tee may be selected later
           const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
-          const hasTee = (teeSel && teeSel.value);
-          const enabled = hasRound && hasTee;
+          const enabled = hasRound;
           if (fileInput) {
             if (enabled) { fileInput.removeAttribute('disabled'); }
             else { fileInput.setAttribute('disabled','disabled'); }
@@ -376,11 +324,12 @@
       } catch (e) {}
       
       form.addEventListener('submit', function(e) {
-          // Ensure a round is selected or a new round name provided and a preferred tee is selected before submitting
+        // Ensure a round/new round and hole number are provided; tee selection is required too but can be selected before final submit
         try {
           const roundSel = document.querySelector('select[name="round_id"]');
           const newRnd = document.querySelector('input[name="new_round_name"]');
-            const teeSel = document.querySelector('select[name="selected_tee"]');
+          const holeInput = document.querySelector('input[name="hole"]');
+          const teeSel = document.querySelector('select[name="selected_tee"]');
           const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
           if (!hasRound) {
             e.preventDefault();
@@ -389,50 +338,21 @@
             alert('Please choose an existing round or create a new round before uploading.');
             return false;
           }
-            // Enforce tee selection
-            if (!teeSel || !teeSel.value) {
-              e.preventDefault();
-              alert('Please select a Preferred Tee before uploading.');
-              return false;
-            }
-        } catch (er) {}
-        // Client-side validation: ensure each selected file has club and distance filled
-        const metaContainer = document.getElementById('per-file-meta');
-        const panels = metaContainer.querySelectorAll('[name^="club_"]');
-        // Build a list of original indices by scanning club selects
-        let missing = [];
-        // For each select element named club_{i}, ensure club is selected; distances are computed server-side
-        metaContainer.querySelectorAll('select[name^="club_"]').forEach(function(sel) {
-          const name = sel.getAttribute('name');
-          const idx = name.split('_')[1];
-          const clubVal = (sel.value || '').trim();
-          if (!clubVal) {
-            missing.push(idx);
+          // Require hole number
+          const holeVal = holeInput && holeInput.value && holeInput.value.trim();
+          if (!holeVal) {
+            e.preventDefault();
+            alert('Please enter a Hole number before uploading.');
+            return false;
           }
-        });
-
-        if (missing.length > 0) {
-          e.preventDefault();
-          // show an inline alert above the submit button
-          let alert = document.getElementById('meta-warning');
-          if (!alert) {
-            alert = document.createElement('div');
-            alert.id = 'meta-warning';
-            alert.className = 'mt-4 bg-yellow-100 border border-yellow-300 text-yellow-800 px-4 py-3 rounded';
-            alert.setAttribute('role', 'alert');
-            submitBtn.parentNode.insertBefore(alert, submitBtn.nextSibling);
+          // Enforce tee selection before final submit
+          if (!teeSel || !teeSel.value) {
+            e.preventDefault();
+            alert('Please select a Preferred Tee before uploading.');
+            return false;
           }
-          alert.innerHTML = `<strong class="font-semibold">Missing information:</strong> Please select a club for each selected video before analyzing.`;
-          // restore submit button state
-          submitBtn.disabled = false;
-          submitBtn.textContent = '🚀 Analyze Shot';
-          submitBtn.classList.remove('bg-gray-400');
-          submitBtn.classList.add('bg-green-600');
-          progressDiv.classList.add('hidden');
-          // scroll into view so user notices
-          alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return false;
-        }
+        } catch (er) { console.error(er); }
+  // Clubs are optional at upload; they can be set later on the shot detail page.
 
         // Show progress indicator
         submitBtn.disabled = true;
@@ -444,8 +364,6 @@
 
       // Selected round display logic
       const roundSelect = document.querySelector('select[name="round_id"]');
-      const newRoundName = document.querySelector('input[name="new_round_name"]');
-      const newRoundPlayedAt = document.querySelector('input[name="new_round_played_at"]');
       const selectedDisplay = document.getElementById('selected-round-display');
 
       function refreshSelectedRound() {
@@ -453,20 +371,6 @@
         if (roundSelect && roundSelect.value) {
           const opt = roundSelect.options[roundSelect.selectedIndex];
           text = `Selected round: ${opt.text}`;
-        } else if (newRoundName && newRoundName.value) {
-          text = `New round: ${newRoundName.value}`;
-          if (newRoundPlayedAt && newRoundPlayedAt.value) {
-            // input is date-only (YYYY-MM-DD). Parse parts and display as locale date.
-            try {
-              const parts = newRoundPlayedAt.value.split('-');
-              if (parts.length === 3) {
-                const d = new Date(parts[0], parts[1]-1, parts[2]);
-                if (!isNaN(d.getTime())) text += ` — ${d.toLocaleDateString()}`;
-              }
-            } catch (e) {
-              // ignore parse errors
-            }
-          }
         }
         if (text) {
           selectedDisplay.textContent = text;
@@ -475,112 +379,78 @@
           selectedDisplay.textContent = '';
           selectedDisplay.classList.add('hidden');
         }
-        // If the server passed a selected_round_id, ensure the display is visible
+        // If a round is selected, lock the course input and the round select
         try {
-          const selRound = document.querySelector('#round-select');
-          if (selRound) {
-            const selectedOpt = selRound.options[selRound.selectedIndex];
-            if (selectedOpt && selectedOpt.value) {
-              selectedDisplay.classList.remove('hidden');
-            }
+          const opt = roundSelect && roundSelect.options[roundSelect.selectedIndex];
+          const courseInput = document.querySelector('input[name="course"]');
+          if (opt && opt.value) {
+            if (courseInput) courseInput.setAttribute('disabled', 'disabled');
+            // Ensure a saved tee on the round is applied and locked
+            try {
+              const teeSel = document.getElementById('id_selected_tee');
+              const lockedDiv = document.getElementById('round-tee-locked');
+              const teeValSpan = document.getElementById('round-tee-val');
+              const selT = opt.dataset.selectedTee || '';
+              if (teeSel) {
+                  if (selT) {
+                  let found = false;
+                  for (let i=0;i<teeSel.options.length;i++) { if (teeSel.options[i].value === selT) { found = true; break; } }
+                  if (!found) {
+                    const o = document.createElement('option'); o.value = selT; o.text = selT; teeSel.appendChild(o);
+                  }
+                  teeSel.value = selT;
+                  teeSel.disabled = true;
+                  // Ensure value is submitted even when select is disabled by adding a hidden input named 'selected_tee'
+                  try {
+                    let hidden = document.getElementById('id_selected_tee_hidden');
+                    if (!hidden) {
+                      hidden = document.createElement('input');
+                      hidden.type = 'hidden';
+                      hidden.name = 'selected_tee';
+                      hidden.id = 'id_selected_tee_hidden';
+                      teeSel.parentNode.insertBefore(hidden, teeSel.nextSibling);
+                    }
+                    hidden.value = selT;
+                  } catch(e) { console.error(e); }
+                  if (lockedDiv && teeValSpan) { teeValSpan.textContent = selT; lockedDiv.classList.remove('hidden'); }
+                } else {
+                  teeSel.disabled = false;
+                  // Remove the hidden input when tee select is unlocked so form posts the select value normally
+                  try { const hidden = document.getElementById('id_selected_tee_hidden'); if (hidden) hidden.remove(); } catch(e) {}
+                  if (lockedDiv) lockedDiv.classList.add('hidden');
+                }
+              }
+            } catch (e) {}
+            try {
+              // disable the visible select so user cannot change it
+              roundSelect.setAttribute('disabled', 'disabled');
+              // ensure the round value is still submitted by adding a hidden input named 'round_id'
+              try {
+                let hidden = document.getElementById('id_round_id_hidden');
+                if (!hidden) {
+                  hidden = document.createElement('input');
+                  hidden.type = 'hidden';
+                  hidden.name = 'round_id';
+                  hidden.id = 'id_round_id_hidden';
+                  roundSelect.parentNode.insertBefore(hidden, roundSelect.nextSibling);
+                }
+                hidden.value = opt.value;
+              } catch (e) { console.error(e); }
+            } catch(e) {}
+          } else {
+            if (courseInput) courseInput.removeAttribute('disabled');
+            try { const teeSel = document.getElementById('id_selected_tee'); if (teeSel) teeSel.disabled = false; } catch(e) {}
+            // Remove hidden round_id when unlocked so the select posts normally
+            try { const hidden = document.getElementById('id_round_id_hidden'); if (hidden) hidden.remove(); } catch(e) {}
           }
         } catch (e) {}
-
-  // No unlock button behavior — course field is editable when prefilled.
       }
 
       if (roundSelect) {
         roundSelect.addEventListener('change', refreshSelectedRound);
-        roundSelect.addEventListener('change', function() {
-          // Autofill only the course when a round is selected.
-          // Leave the hole input untouched so user chooses it explicitly.
-          const opt = roundSelect.options[roundSelect.selectedIndex];
-          if (opt && opt.dataset) {
-            const courseVal = opt.dataset.course || '';
-            const courseInput = document.querySelector('input[name="course"]');
-            if (courseInput && courseVal) courseInput.value = courseVal;
-            // Try to populate tee options for the autofilled course
-            try {
-              if (courseVal) fetchCourseAndPopulate(courseVal);
-            } catch (e) {}
-          }
-        });
       }
-      if (newRoundName) newRoundName.addEventListener('input', refreshSelectedRound);
-      if (newRoundPlayedAt) newRoundPlayedAt.addEventListener('change', refreshSelectedRound);
       // initialize
       refreshSelectedRound();
-
-      // Round mode toggler (existing vs new)
-      (function() {
-        const btnExisting = document.getElementById('btn-existing-round');
-        const btnNew = document.getElementById('btn-new-round');
-        const existingMode = document.getElementById('existing-round-mode');
-        const newMode = document.getElementById('new-round-mode');
-        const roundSelectEl = document.getElementById('round-select');
-        const newNameEl = document.getElementById('new-round-name');
-        const newPlayedAtEl = document.getElementById('new-round-played-at');
-
-        function showExisting() {
-          existingMode.classList.remove('hidden');
-          newMode.classList.add('hidden');
-          // Active button styling
-          btnExisting.classList.add('bg-green-600', 'text-white');
-          btnExisting.classList.remove('bg-white', 'text-gray-700');
-          btnExisting.setAttribute('aria-pressed', 'true');
-          // Inactive button styling
-          btnNew.classList.remove('bg-green-600', 'text-white');
-          btnNew.classList.add('bg-white', 'text-gray-700');
-          btnNew.setAttribute('aria-pressed', 'false');
-          // clear new round inputs so backend won't create if they were previously filled
-          if (newNameEl) newNameEl.value = '';
-          if (newPlayedAtEl) newPlayedAtEl.value = '';
-        }
-
-        function showNew() {
-          existingMode.classList.add('hidden');
-          newMode.classList.remove('hidden');
-          // Active new button styling
-          btnNew.classList.add('bg-green-600', 'text-white');
-          btnNew.classList.remove('bg-white', 'text-gray-700');
-          btnNew.setAttribute('aria-pressed', 'true');
-          // Inactive existing button styling
-          btnExisting.classList.remove('bg-green-600', 'text-white');
-          btnExisting.classList.add('bg-white', 'text-gray-700');
-          btnExisting.setAttribute('aria-pressed', 'false');
-          // clear existing round selection so backend won't pick it
-          if (roundSelectEl) roundSelectEl.selectedIndex = 0;
-        }
-
-        if (btnExisting && btnNew) {
-          btnExisting.addEventListener('click', showExisting);
-          btnNew.addEventListener('click', showNew);
-          // Auto-switch to "Create new round" when the user types a new round name
-          try {
-            if (newNameEl) {
-              newNameEl.addEventListener('input', function() {
-                try {
-                  if (this.value && this.value.trim().length > 0) showNew();
-                  else showExisting();
-                } catch (e) {}
-              });
-            }
-          } catch (e) {}
-        }
-
-        // If URL provided a selected round, default to existing mode and preselect it
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const selRid = params.get('round_id');
-          if (selRid && roundSelectEl) {
-            for (let i=0;i<roundSelectEl.options.length;i++){
-              if (roundSelectEl.options[i].value === selRid) { roundSelectEl.selectedIndex = i; break; }
-            }
-            showExisting();
-            refreshSelectedRound();
-          }
-        } catch (e) {}
-      })();
 
         // Prefill from URL params (so round/hole links can preselect on navigation)
         try {
@@ -592,6 +462,8 @@
             for (let i=0;i<roundSelect.options.length;i++){
               if (roundSelect.options[i].value === rid) { roundSelect.selectedIndex = i; break; }
             }
+            // Dispatch change so the prefill and tee-lock logic runs
+            try { roundSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch(e){}
           }
           if (holeParam) {
             const holeInput = document.querySelector('input[name="hole"]');
@@ -889,28 +761,7 @@
 
       // Load tees button and payload debug toggler
       try {
-        const reloadBtn = document.getElementById('reload-tees-btn');
-        const togglePayloadBtn = document.getElementById('toggle-teepayload-btn');
-        const payloadBox = document.getElementById('tee-payload-debug');
-        const includeMapChk = document.getElementById('id_include_map');
-        const includeTextChk = document.getElementById('id_include_text');
-        if (reloadBtn) reloadBtn.addEventListener('click', function() {
-          const q = input.value && input.value.trim();
-          if (!q) { alert('Enter a course name first'); return; }
-          if (includeMapChk && !includeMapChk.checked) { alert('Enable "Include course map overlay" to load tees from the API.'); return; }
-          fetchCourseAndPopulate(q);
-        });
-        if (togglePayloadBtn && payloadBox) togglePayloadBtn.addEventListener('click', function() {
-          if (payloadBox.classList.contains('hidden')) payloadBox.classList.remove('hidden');
-          else payloadBox.classList.add('hidden');
-        });
-        // expose a hook to set debug payload from fetchCourseAndPopulate
-        window.__setTeePayloadDebug = function(txt) {
-          if (payloadBox) {
-            payloadBox.textContent = typeof txt === 'string' ? txt : JSON.stringify(txt, null, 2);
-            payloadBox.classList.remove('hidden');
-          }
-        };
+        // tee load controls removed for analyze page UX
       } catch (e) {}
 
         // When the include_map checkbox toggles, only control auto-fetching; keep the course input editable
