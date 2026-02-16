@@ -11,8 +11,15 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY')
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') in ('1', 'True', 'true')
 
 # Allowed hosts
-# In development it's often convenient to allow all, but in production set a comma-separated list via ALLOWED_HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
+# In development it's often convenient to allow all. In production set a comma-separated
+# list via the ALLOWED_HOSTS environment variable (for example: "example.com,www.example.com").
+if os.environ.get('ALLOWED_HOSTS'):
+    ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS').split(',') if h.strip()]
+else:
+    # Default to permissive for local development. When DEBUG is False keep an empty
+    # ALLOWED_HOSTS by default to avoid accidentally exposing the site; set the
+    # environment variable in production to the allowed hostnames.
+    ALLOWED_HOSTS = ['*'] if DEBUG else []
 
 # Security hardening toggles (applied only when DEBUG is False)
 if not DEBUG:
@@ -107,6 +114,10 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Note: static files storage is configured via the `STORAGES` mapping above.
+# If you enable USE_S3 in production, update the STORAGES mapping to point
+# at S3Boto3Storage (and install django-storages[boto3]).
+
 # Configure WhiteNoise for static file serving in production
 STORAGES = {
     "default": {
@@ -119,6 +130,20 @@ STORAGES = {
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Minimal production logging: send warnings/errors to stdout so they are visible
+# in systemd/journald or container logs. Adjust handlers/formatters as needed.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING' if not DEBUG else 'INFO',
+    },
+}
 
 # File Upload Settings - Optimized for iPhone/Mobile Videos
 # iPhone videos can be large (100MB-1GB+), so we increase the limits
@@ -135,5 +160,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # Mapbox token used to fetch static map images when a local overlay isn't present.
-# You can also override this at runtime with the MAPBOX_TOKEN environment variable.
-MAPBOX_TOKEN = 'pk.eyJ1IjoibGR1Z2dzIiwiYSI6ImNtZ3d2bzVybjBsNGkya3ByaGY5MXA1MGIifQ.OVODkq1EaazsvaXtyeFE4A'
+# DO NOT put secrets in source control. Provide MAPBOX_TOKEN via environment
+# variables on the server (for example: export MAPBOX_TOKEN="pk..."), or
+# configure your secret manager.
+MAPBOX_TOKEN = os.environ.get('MAPBOX_TOKEN') or ''
