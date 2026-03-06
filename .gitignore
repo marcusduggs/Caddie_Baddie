@@ -19,4 +19,5 @@ dist/
 build/
 coverage/
 *.egg-info/
-pip-wheel-metadata/
+pip-wheel-metadata/venv/
+__pycache__/
