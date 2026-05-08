@@ -131,13 +131,16 @@ def extract_snapshots(video_path: str, analysis_pk: int) -> Dict[str, str]:
         logger.warning("snapshot_extractor: video too short (%d frames)", total_frames)
         return {}
 
-    # First pass: collect wrist positions using MediaPipe
+    # Run MediaPipe on every Nth frame to cut CPU time; carry forward last known position.
+    FRAME_STEP = 3
+
+    # First pass: collect wrist positions (no frame storage — saves memory)
     wrist_positions: List[Optional[tuple]] = []
-    all_frames: Dict[int, any] = {}
 
     if mp is not None:
         mp_pose = mp.solutions.pose
         frame_idx = 0
+        last_wrist: Optional[tuple] = None
         try:
             with mp_pose.Pose(
                 static_image_mode=False,
@@ -149,37 +152,51 @@ def extract_snapshots(video_path: str, analysis_pk: int) -> Dict[str, str]:
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    all_frames[frame_idx] = frame.copy()
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = pose.process(rgb)
-                    if getattr(results, "pose_landmarks", None):
-                        rw = results.pose_landmarks.landmark[16]
-                        wrist_positions.append((rw.x, rw.y))
-                    else:
-                        wrist_positions.append(None)
+                    if frame_idx % FRAME_STEP == 0:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        results = pose.process(rgb)
+                        if getattr(results, "pose_landmarks", None):
+                            rw = results.pose_landmarks.landmark[16]
+                            last_wrist = (rw.x, rw.y)
+                        else:
+                            last_wrist = None
+                    wrist_positions.append(last_wrist)
                     frame_idx += 1
         except Exception:
             logger.exception("snapshot_extractor: pose detection pass failed")
         finally:
             cap.release()
     else:
-        # No MediaPipe — just collect frames
         frame_idx = 0
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            all_frames[frame_idx] = frame.copy()
             wrist_positions.append(None)
             frame_idx += 1
         cap.release()
 
-    if not all_frames:
+    frame_count = len(wrist_positions)
+    if frame_count == 0:
         logger.warning("snapshot_extractor: no frames extracted from video")
         return {}
 
-    frame_count = len(all_frames)
     key_indices = _find_key_frame_indices(frame_count, wrist_positions)
+
+    # Second pass: seek only to the 4 key frames (avoids storing all frames in RAM)
+    unique_indices = set(key_indices.values())
+    all_frames: Dict[int, any] = {}
+    cap2 = cv2.VideoCapture(video_path)
+    if cap2.isOpened():
+        fi = 0
+        while len(all_frames) < len(unique_indices):
+            ret, frame = cap2.read()
+            if not ret:
+                break
+            if fi in unique_indices:
+                all_frames[fi] = frame.copy()
+            fi += 1
+        cap2.release()
 
     # Save snapshots
     saved: Dict[str, str] = {}

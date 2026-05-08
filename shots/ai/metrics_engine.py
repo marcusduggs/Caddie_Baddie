@@ -110,13 +110,19 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
         logger.error("metrics_engine: cannot open video: %s", video_path)
         return []
 
+    # Process every Nth frame; carry forward last landmarks for skipped frames.
+    # Biomechanical ratios (tempo, sequencing, etc.) are insensitive to 2x sampling.
+    FRAME_STEP = 2
+
     mp_pose = mp.solutions.pose
     all_frames: List[List[Dict]] = []
+    last_lms: Optional[List[Dict]] = None
+    frame_idx = 0
 
     try:
         with mp_pose.Pose(
             static_image_mode=False,
-            model_complexity=1,
+            model_complexity=0,
             smooth_landmarks=True,
             min_detection_confidence=0.45,
             min_tracking_confidence=0.45,
@@ -125,19 +131,22 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = pose.process(rgb)
-                if getattr(results, "pose_landmarks", None):
-                    lms = [
-                        {
-                            "x": lm.x,
-                            "y": lm.y,
-                            "z": lm.z,
-                            "visibility": getattr(lm, "visibility", 1.0),
-                        }
-                        for lm in results.pose_landmarks.landmark
-                    ]
-                    all_frames.append(lms)
+                if frame_idx % FRAME_STEP == 0:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = pose.process(rgb)
+                    if getattr(results, "pose_landmarks", None):
+                        last_lms = [
+                            {
+                                "x": lm.x,
+                                "y": lm.y,
+                                "z": lm.z,
+                                "visibility": getattr(lm, "visibility", 1.0),
+                            }
+                            for lm in results.pose_landmarks.landmark
+                        ]
+                if last_lms is not None:
+                    all_frames.append(last_lms)
+                frame_idx += 1
     finally:
         cap.release()
 
