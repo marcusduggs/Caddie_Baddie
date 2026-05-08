@@ -55,3 +55,50 @@ class ShotAnalysisForm(forms.ModelForm):
         model = ShotAnalysis
         fields = ['input_video', 'club', 'distance']
 
+
+CLUB_CHOICES = [
+    ('', '— Select club (optional) —'),
+    ('Driver', 'Driver'),
+    ('3-wood', '3-wood'),
+    ('5-wood', '5-wood'),
+    ('Hybrid', 'Hybrid'),
+    ('3-iron', '3-iron'),
+    ('4-iron', '4-iron'),
+    ('5-iron', '5-iron'),
+    ('6-iron', '6-iron'),
+    ('7-iron', '7-iron'),
+    ('8-iron', '8-iron'),
+    ('9-iron', '9-iron'),
+    ('PW', 'PW'),
+    ('SW', 'SW'),
+    ('LW', 'LW'),
+    ('Putter', 'Putter'),
+    ('Other', 'Other'),
+]
+
+
+class QuickUploadForm(forms.Form):
+    """Minimal upload form for Quick Upload mode — no course/round/hole required."""
+    input_video = forms.FileField(
+        label='Swing Video',
+        widget=forms.FileInput(attrs={
+            'accept': 'video/*',
+            'class': 'sr-only',
+            'id': 'quick-video-input',
+        }),
+    )
+    club = forms.ChoiceField(
+        choices=CLUB_CHOICES,
+        required=False,
+        label='Club',
+    )
+    notes = forms.CharField(
+        required=False,
+        max_length=500,
+        label='Notes (optional)',
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'e.g. Range session, working on hip turn…',
+        }),
+    )
+

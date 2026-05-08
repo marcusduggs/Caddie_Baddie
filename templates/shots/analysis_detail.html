@@ -17,9 +17,9 @@
       <form method="post" action="{% url 'shots:toggle_favorite' analysis.pk %}">
         {% csrf_token %}
         {% if analysis.is_favorite %}
-          <button type="submit" class="inline-block bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition">⭐ Unshare</button>
+          <button type="submit" class="inline-block bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition">⭐ Remove from Favorites</button>
         {% else %}
-          <button type="submit" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">⭐ Share</button>
+          <button type="submit" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">⭐ Add to Favorites</button>
         {% endif %}
       </form>
       {% if analysis.round and analysis.hole_number %}
@@ -460,54 +460,62 @@
     </script>
     {% endif %}
 
-    <!-- Edit overlays / Re-analyze modal trigger -->
-    <div class="mt-6">
-      <button id="edit-overlays-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Edit Overlays & Re-analyze</button>
-    </div>
+    <!-- ═══════════════════════════════════════════════════════════
+         INLINE OVERLAY CONTROLS
+    ═══════════════════════════════════════════════════════════ -->
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-800">🎬 Video Overlays &amp; Club</h3>
 
-    <!-- Modal (hidden) -->
-    <div id="edit-overlays-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-40">
-      <div class="bg-white rounded-lg shadow-lg max-w-md w-11/12 p-6">
-        <h3 class="text-lg font-semibold mb-3">Edit Overlays & Re-analyze</h3>
-        <form method="post" action="{% url 'shots:reprocess_overlays' analysis.pk %}">
-          {% csrf_token %}
-          <div class="space-y-3">
-            <label class="block text-sm">Club</label>
-            <select name="club" class="block w-full p-2 border rounded">
-              <option value="">Keep current ({{ analysis.club }})</option>
-              <option>Driver</option>
-              <option>3-wood</option>
-              <option>5-wood</option>
-              <option>3-iron</option>
-              <option>4-iron</option>
-              <option>5-iron</option>
-              <option>6-iron</option>
-              <option>7-iron</option>
-              <option>8-iron</option>
-              <option>9-iron</option>
-              <option>PW</option>
-              <option>Putter</option>
-            </select>
-
-            <label class="inline-flex items-center">
-              <input type="checkbox" name="include_map" class="form-checkbox" {% if analysis.include_map %}checked{% endif %} />
-              <span class="ml-2">Include course map overlay</span>
-            </label>
-            <label class="inline-flex items-center">
-              <input type="checkbox" name="include_course_text" class="form-checkbox" {% if analysis.include_course_text %}checked{% endif %} />
-              <span class="ml-2">Burn course/hole text into processed video</span>
-            </label>
-            <label class="inline-flex items-center">
-              <input type="checkbox" name="overlay_pose" class="form-checkbox" {% if analysis.overlay_requested %}checked{% endif %} />
-              <span class="ml-2">Add swing wireframe overlay</span>
-            </label>
-          </div>
-          <div class="mt-4 flex justify-end gap-2">
-            <button type="button" id="edit-cancel" class="px-4 py-2 rounded bg-gray-100">Cancel</button>
-            <button type="submit" class="px-4 py-2 rounded bg-indigo-600 text-white">Re-analyze</button>
-          </div>
-        </form>
+      <!-- Club selector -->
+      <div class="mb-4">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Club</label>
+        <select id="overlay-club"
+                class="w-full sm:w-64 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+          <option value="">Keep current ({{ analysis.club|default:'Unknown' }})</option>
+          {% for c in clubs %}
+          <option value="{{ c }}" {% if analysis.club == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
       </div>
+
+      <!-- Toggle buttons -->
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Overlays</p>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button id="btn-wireframe"
+                data-active="{{ analysis.overlay_requested|yesno:'1,0' }}"
+                onclick="overlayToggle('wireframe')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.overlay_requested %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          🦴 Wireframe
+        </button>
+        <button id="btn-map"
+                data-active="{{ analysis.include_map|yesno:'1,0' }}"
+                onclick="overlayToggle('map')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.include_map %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          🗺️ GPS Map
+        </button>
+        <button id="btn-text"
+                data-active="{{ analysis.include_course_text|yesno:'1,0' }}"
+                onclick="overlayToggle('text')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.include_course_text %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          📝 Course Text
+        </button>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-apply-overlays" onclick="applyOverlays()"
+                class="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-xl hover:bg-indigo-700 transition">
+          Apply
+        </button>
+        <button id="btn-remove-overlays" onclick="removeAllOverlays()"
+                class="border border-gray-300 text-gray-500 text-sm font-medium px-6 py-2.5 rounded-xl hover:border-red-400 hover:text-red-500 transition bg-white">
+          Remove All
+        </button>
+      </div>
+      <p id="overlay-inline-msg" class="text-xs text-gray-400 mt-2 hidden"></p>
     </div>
 
   <!-- Back Button removed per user request -->
@@ -531,78 +539,124 @@
 
 {% block extra_scripts %}
   <script>
-    // Edit overlays modal handling
+    // ── Overlay toggle controls ────────────────────────────────────────────
     (function(){
-      try {
-        const btn = document.getElementById('edit-overlays-btn');
-        const modal = document.getElementById('edit-overlays-modal');
-        const cancel = document.getElementById('edit-cancel');
-        if (btn && modal) {
-          btn.addEventListener('click', function(){ modal.classList.remove('hidden'); modal.classList.add('flex'); window.scrollTo(0,0); });
+      var reprocessUrl = "{% url 'shots:reprocess_overlays' analysis.pk %}";
+      var csrfToken    = "{{ csrf_token }}";
+      var statusUrl    = "{% url 'shots:overlay_status' analysis.pk %}";
+
+      var KEY_MAP = { wireframe: 'overlay_pose', map: 'include_map', text: 'include_course_text' };
+
+      window.overlayToggle = function (key) {
+        var btn = document.getElementById('btn-' + key);
+        if (!btn) return;
+        var next = btn.getAttribute('data-active') === '1' ? '0' : '1';
+        btn.setAttribute('data-active', next);
+        if (next === '1') {
+          btn.classList.add('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.remove('border-gray-300', 'bg-white', 'text-gray-600');
+        } else {
+          btn.classList.remove('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.add('border-gray-300', 'bg-white', 'text-gray-600');
         }
-        if (cancel && modal) cancel.addEventListener('click', function(){ modal.classList.add('hidden'); modal.classList.remove('flex'); });
-      } catch (e) {}
-    })();
-    (function(){
-    try {
-    const overlayRequested = "{{ analysis.overlay_requested|yesno:'true,false' }}" === 'true';
-    // If overlay wasn't requested and there is no processing in progress, don't poll
-    const initialOverlayStatus = "{{ analysis.overlay_status|default:'' }}".toString();
-    const initialOverallStatus = "{{ analysis.status|default:'' }}".toString();
-    if (!overlayRequested && initialOverallStatus !== 'processing') return;
-    const analysisPk = parseInt("{{ analysis.pk }}", 10) || null;
-    const statusUrl = new URL('{% url "shots:overlay_status" analysis.pk %}', window.location.origin).toString();
-          let polling = true;
-          async function poll() {
-            try {
-              const resp = await fetch(statusUrl, { credentials: 'same-origin' });
-              if (!resp.ok) return;
-              const data = await resp.json();
-              const overlaySt = data.overlay_status || 'pending';
-              const overall = data.status || 'pending';
-              const err = data.overlay_error || '';
-              const processedUrl = data.processed_video_url || null;
-              const progress = document.getElementById('overlay-progress');
-              const player = document.getElementById('overlay-player');
+      };
 
-              // If overall processing completed and we have a processed video URL, consider reanalysis done
-              if (overall === 'completed' || (processedUrl && overlaySt !== 'overlaying')) {
-                try {
-                  // If the backend included a processed URL, update the player in-place
-                  if (processedUrl && player) {
-                    player.innerHTML = `<video controls playsinline class="w-full rounded-lg shadow-lg"><source src="${processedUrl}" type="video/mp4">Your browser does not support the video tag.</video>`;
-                  }
-                  if (progress) progress.innerHTML = `<p class="text-sm text-green-700">Processing complete ✅</p>`;
-                } catch (e) {
-                  try { location.reload(); } catch (er) { /* ignore */ }
-                }
-                polling = false;
-                return;
-              }
+      window.applyOverlays = function () {
+        var wireframe = document.getElementById('btn-wireframe').getAttribute('data-active') === '1' ? '1' : '0';
+        var map       = document.getElementById('btn-map').getAttribute('data-active')       === '1' ? '1' : '0';
+        var text      = document.getElementById('btn-text').getAttribute('data-active')      === '1' ? '1' : '0';
+        var club      = (document.getElementById('overlay-club') || {}).value || '';
+        sendReprocess(wireframe, map, text, club);
+      };
 
-              // Overlay-specific states
-              if (overlaySt === 'completed') {
-                if (progress) progress.innerHTML = `<p class="text-sm text-green-700">Overlay ready ✅</p>`;
-                if (player && processedUrl) {
-                  player.innerHTML = `<video controls playsinline class="w-full rounded-lg shadow-lg"><source src="${processedUrl}" type="video/mp4">Your browser does not support the video tag.</video>`;
-                }
-                polling = false;
-                return;
-              } else if (overlaySt === 'failed') {
-                if (progress) progress.innerHTML = `<p class="text-sm text-red-700">Overlay generation failed: ${err}</p>`;
-                if (player) player.innerHTML = `<div class="text-sm text-red-600">Overlay failed — please try reprocessing later.</div>`;
-                polling = false;
-                return;
-              }
-              // Otherwise keep polling silently (no verbose waiting message)
-            } catch (e) {
-              // ignore network errors silently
+      window.removeAllOverlays = function () {
+        ['wireframe', 'map', 'text'].forEach(function (key) {
+          var btn = document.getElementById('btn-' + key);
+          if (!btn) return;
+          btn.setAttribute('data-active', '0');
+          btn.classList.remove('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.add('border-gray-300', 'bg-white', 'text-gray-600');
+        });
+        sendReprocess('0', '0', '0', '');
+      };
+
+      function sendReprocess(wireframe, map, text, club) {
+        var applyBtn  = document.getElementById('btn-apply-overlays');
+        var removeBtn = document.getElementById('btn-remove-overlays');
+        var msg       = document.getElementById('overlay-inline-msg');
+        if (applyBtn)  { applyBtn.disabled  = true; applyBtn.textContent  = 'Processing…'; }
+        if (removeBtn) { removeBtn.disabled = true; }
+        if (msg)       { msg.textContent = ''; msg.classList.add('hidden'); }
+
+        var body = 'ajax=1'
+          + '&overlay_pose='            + wireframe
+          + '&include_map='             + map
+          + '&include_course_text='     + text
+          + (club ? '&club=' + encodeURIComponent(club) : '');
+
+        fetch(reprocessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+          body: body,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.status === 'queued') {
+              if (msg) { msg.textContent = 'Processing — video will update shortly.'; msg.classList.remove('hidden'); }
+              pollForVideo(function () {
+                if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+                if (removeBtn) { removeBtn.disabled = false; }
+              });
+            } else {
+              if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+              if (removeBtn) { removeBtn.disabled = false; }
+              if (msg) { msg.textContent = data.error || 'Failed to queue.'; msg.classList.remove('hidden'); }
             }
-            if (polling) setTimeout(poll, 3000);
-          }
-          setTimeout(poll, 800);
-        } catch (e) {}
+          })
+          .catch(function () {
+            if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+            if (removeBtn) { removeBtn.disabled = false; }
+            if (msg) { msg.textContent = 'Request failed. Try again.'; msg.classList.remove('hidden'); }
+          });
+      }
+
+      function pollForVideo(onDone) {
+        var interval = setInterval(function () {
+          fetch(statusUrl, { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              var overall = data.status || '';
+              var processedUrl = data.processed_video_url || '';
+              if (overall === 'completed' && processedUrl) {
+                clearInterval(interval);
+                var player = document.getElementById('overlay-player');
+                if (player) {
+                  player.innerHTML = '<h3 class="text-xl font-semibold mb-4">🗺️ Processed Video</h3>'
+                    + '<video controls playsinline preload="metadata" class="w-full rounded-lg shadow-lg">'
+                    + '<source src="' + processedUrl + '?t=' + Date.now() + '" type="video/mp4"></video>';
+                }
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Done!'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              } else if (overall === 'failed') {
+                clearInterval(interval);
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Processing failed. Please try again.'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              }
+            })
+            .catch(function () { clearInterval(interval); if (onDone) onDone(); });
+        }, 3000);
+      }
+
+      // Auto-poll on page load if still processing
+      (function(){
+        var initialStatus = "{{ analysis.status|default:'' }}";
+        if (initialStatus === 'processing' || initialStatus === 'uploading') {
+          pollForVideo(null);
+        }
       })();
+    })();
   </script>
   {# Mapbox shot-distance JS removed per user request #}
 {% endblock %}

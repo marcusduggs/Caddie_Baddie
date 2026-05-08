@@ -73,6 +73,8 @@ class ShotAnalysis(models.Model):
     round = models.ForeignKey('ShotRound', on_delete=models.SET_NULL, null=True, blank=True, related_name='analyses')
     # Mark this shot as a favorite (shared to the public/favorites page)
     is_favorite = models.BooleanField(default=False)
+    # Quick Upload mode: bypasses Course → Round → Hole workflow
+    is_quick_upload = models.BooleanField(default=False)
 
     # AI Swing Coach fields — populated asynchronously during background processing
     ai_main_fault = models.TextField(blank=True, null=True)

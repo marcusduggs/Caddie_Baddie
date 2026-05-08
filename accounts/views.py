@@ -21,7 +21,7 @@ def login_view(request):
         if form.is_valid():
             user = form.get_user()
             login(request, user)
-            return redirect(reverse("shots:shot_list"))
+            return redirect(reverse("shots:home"))
         else:
             return render(request, "accounts/login.html", {"form": form, "error": "Invalid login details"})
     else:
@@ -35,7 +35,7 @@ def signup_view(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
-            return redirect(reverse("shots:shot_list"))
+            return redirect(reverse("shots:home"))
         else:
             return render(request, "accounts/signup.html", {"form": form})
     else:

@@ -44,4 +44,9 @@ urlpatterns = [
     path('round/<int:round_pk>/hole/<int:hole>/delete/', views.delete_round_hole, name='delete_round_hole'),
     path('round/<int:round_pk>/delete/', views.delete_round, name='delete_round'),
     path('courses/<int:pk>/delete/', views.delete_course, name='delete_course'),
+    # Quick Upload Mode — lightweight swing analysis without course/round/hole setup
+    path('quick-upload/', views.quick_upload, name='quick_upload'),
+    path('quick-swings/', views.quick_swings, name='quick_swings'),
+    path('quick-swings/<int:pk>/', views.quick_swing_detail, name='quick_swing_detail'),
+    path('quick-swings/<int:pk>/reprocess/', views.quick_reprocess, name='quick_reprocess'),
 ]

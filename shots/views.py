@@ -199,35 +199,33 @@ def delete_round_hole(request, round_pk, hole):
     return redirect('shots:round_holes', round_pk=round_pk)
 
 
-@login_required
 def home(request):
-    shots = Shot.objects.filter(user=request.user).order_by('-created_at')[:100]
-    count = shots.count()
-    avg_distance = shots.aggregate_avg = None
-    if count:
+    shots = []
+    count = 0
+    avg_distance = None
+
+    if request.user.is_authenticated:
+        shots = Shot.objects.filter(user=request.user).order_by('-created_at')[:100]
+        count = shots.count()
+        if count:
+            try:
+                avg_distance = sum(s.distance for s in shots) / count
+            except Exception:
+                avg_distance = None
+
+        # Redirect to courses when user clicks "View My Courses" from the home page
         try:
-            avg_distance = sum(s.distance for s in shots) / count
+            from .models import Course
+            if request.GET.get('from_home') == '1':
+                has_courses = Course.objects.filter(user=request.user).exists()
+                if has_courses:
+                    return redirect('shots:courses_list')
+                else:
+                    from django.contrib import messages
+                    messages.info(request, 'You have no courses yet — add a course to get started.')
+                    return redirect('shots:add_course')
         except Exception:
-            avg_distance = None
-    # If the user clicks "View My Courses" we want that page to be useful.
-    # Redirect straight to add_course when the user has no courses yet so they
-    # aren't dropped on an empty listing.
-    try:
-        from .models import Course
-        # Only redirect when the user clicked the "View My Courses" link from
-        # the home page which adds ?from_home=1 to the target URL.
-        if request.user.is_authenticated and request.GET.get('from_home') == '1':
-            has_courses = Course.objects.filter(user=request.user).exists()
-            if has_courses:
-                # User explicitly asked to view courses from the home page
-                return redirect('shots:courses_list')
-            else:
-                from django.contrib import messages
-                messages.info(request, 'You have no courses yet — add a course to get started.')
-                return redirect('shots:add_course')
-    except Exception:
-        # If Course model is unavailable or any DB error occurs, fall back to normal home render
-        pass
+            pass
 
     context = {
         'shots': shots,
@@ -952,7 +950,8 @@ def analysis_detail(request, pk):
     except Exception:
         recent_distances = []
 
-    return render(request, 'shots/analysis_detail.html', {'analysis': analysis, 'overlay_info': overlay_info, 'back_to_hole_url': back_to_hole_url, 'gps': gps, 'MAPBOX_TOKEN': mapbox_token, 'recent_distances': recent_distances})
+    clubs = ['Driver','3-wood','5-wood','Hybrid','3-iron','4-iron','5-iron','6-iron','7-iron','8-iron','9-iron','PW','SW','LW','Putter','Other']
+    return render(request, 'shots/analysis_detail.html', {'analysis': analysis, 'overlay_info': overlay_info, 'back_to_hole_url': back_to_hole_url, 'gps': gps, 'MAPBOX_TOKEN': mapbox_token, 'recent_distances': recent_distances, 'clubs': clubs})
 
 
 @login_required
@@ -974,10 +973,12 @@ def reprocess_overlays(request, pk):
         messages.error(request, 'Invalid request method.')
         return redirect('shots:analysis_detail', pk=pk)
 
+    is_ajax = request.POST.get('ajax') == '1'
+
     # Read submitted options
-    include_map = bool(request.POST.get('include_map'))
-    include_text = bool(request.POST.get('include_course_text'))
-    overlay_pose = bool(request.POST.get('overlay_pose'))
+    include_map = request.POST.get('include_map') == '1'
+    include_text = request.POST.get('include_course_text') == '1'
+    overlay_pose = request.POST.get('overlay_pose') == '1'
     club = (request.POST.get('club') or '').strip() or sa.club
     used_tee = (request.POST.get('used_tee') or '').strip() or sa.used_tee
 
@@ -989,11 +990,12 @@ def reprocess_overlays(request, pk):
         sa.club = club
         sa.used_tee = used_tee
         sa.overlay_status = 'pending'
-        # Mark overall processing as starting so the status endpoint can report it immediately
         sa.status = 'processing'
         sa.overlay_error_message = ''
         sa.save()
     except Exception:
+        if is_ajax:
+            return JsonResponse({'error': 'Failed to update shot settings.'}, status=500)
         messages.error(request, 'Failed to update shot settings.')
         return redirect('shots:analysis_detail', pk=pk)
 
@@ -1008,12 +1010,19 @@ def reprocess_overlays(request, pk):
                 os.path.join(settings.MEDIA_ROOT, 'output', f"reprocess_{sa.pk}.mp4"),
                 None,
             )
-            messages.success(request, 'Reprocessing queued — the page will update when complete.')
         else:
+            if is_ajax:
+                return JsonResponse({'error': 'No input video available to reprocess.'}, status=400)
             messages.error(request, 'No input video available to reprocess.')
+            return redirect('shots:analysis_detail', pk=pk)
     except Exception as e:
+        if is_ajax:
+            return JsonResponse({'error': str(e)}, status=500)
         messages.error(request, f'Failed to queue reprocessing: {e}')
+        return redirect('shots:analysis_detail', pk=pk)
 
+    if is_ajax:
+        return JsonResponse({'status': 'queued'})
     return redirect('shots:analysis_detail', pk=pk)
 
 
@@ -1045,10 +1054,52 @@ from django.contrib.auth.decorators import login_required
 
 @login_required
 def shot_list(request):
-    """Show all uploaded shot videos for the logged-in user."""
-    # Only show shots marked as favorites on the shots index (shared shots)
-    analyses = ShotAnalysis.objects.filter(user=request.user, is_favorite=True).order_by('-created_at')[:200]
-    return render(request, 'shots/shot_list.html', {'analyses': analyses})
+    """Show all favorited shots for the logged-in user with filters and pagination."""
+    from django.core.paginator import Paginator
+
+    qs = ShotAnalysis.objects.filter(user=request.user, is_favorite=True).order_by('-created_at')
+
+    club_filter  = request.GET.get('club', '').strip()
+    shape_filter = request.GET.get('shape', '').strip().lower()
+    type_filter  = request.GET.get('type', '').strip()   # 'quick' | 'round' | ''
+    score_min    = request.GET.get('score_min', '').strip()
+    score_max    = request.GET.get('score_max', '').strip()
+
+    if club_filter:
+        qs = qs.filter(club__iexact=club_filter)
+    if shape_filter:
+        qs = qs.filter(ai_shot_shape__iexact=shape_filter)
+    if type_filter == 'quick':
+        qs = qs.filter(is_quick_upload=True)
+    elif type_filter == 'round':
+        qs = qs.filter(is_quick_upload=False)
+    try:
+        if score_min:
+            qs = qs.filter(ai_overall_score__gte=int(score_min))
+    except (ValueError, TypeError):
+        score_min = ''
+    try:
+        if score_max:
+            qs = qs.filter(ai_overall_score__lte=int(score_max))
+    except (ValueError, TypeError):
+        score_max = ''
+
+    paginator  = Paginator(qs, 12)
+    page_obj   = paginator.get_page(request.GET.get('page'))
+    clubs      = ['Driver','3-wood','5-wood','Hybrid','3-iron','4-iron','5-iron','6-iron','7-iron','8-iron','9-iron','PW','SW','LW','Putter','Other']
+    shot_shapes = ['straight','draw','fade','slice','hook','push','pull']
+
+    return render(request, 'shots/shot_list.html', {
+        'page_obj':      page_obj,
+        'total_count':   qs.count(),
+        'available_clubs': clubs,
+        'shot_shapes':   shot_shapes,
+        'club_filter':   club_filter,
+        'shape_filter':  shape_filter,
+        'type_filter':   type_filter,
+        'score_min':     score_min,
+        'score_max':     score_max,
+    })
 
 
 @login_required
@@ -2499,3 +2550,191 @@ def ai_coach_chat(request, pk):
     except Exception:
         logger.exception('ai_coach_chat: unexpected error for analysis %s', pk)
         return JsonResponse({'error': 'Could not process your question. Please try again.'}, status=500)
+
+
+# ==============================================================================
+# QUICK UPLOAD MODE
+# Lightweight upload flow that bypasses Course → Round → Hole setup.
+# Reuses the full existing AI pipeline (metrics, scoring, coaching, memory).
+# ==============================================================================
+
+@login_required
+def quick_upload(request):
+    """Render and handle the Quick Upload form.
+
+    On POST: creates a ShotAnalysis with is_quick_upload=True, queues the
+    existing background processing task, then redirects to the detail page.
+    No course, round, or hole is required.
+    """
+    from .forms import QuickUploadForm
+
+    if request.method == 'POST':
+        form = QuickUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            video_file = form.cleaned_data['input_video']
+            club = (form.cleaned_data.get('club') or '').strip() or 'Unknown'
+            notes = (form.cleaned_data.get('notes') or '').strip()
+
+            try:
+                sa = ShotAnalysis(
+                    user=request.user,
+                    club=club,
+                    distance=0.0,          # not required for quick uploads
+                    is_quick_upload=True,
+                    status='uploading',
+                )
+                sa.input_video.save(video_file.name, video_file, save=True)
+
+                # Best-effort thumbnail
+                try:
+                    import uuid as _uuid
+                    from django.core.files.base import ContentFile
+                    thumb_name = f"thumb_{_uuid.uuid4().hex}.jpg"
+                    thumb_path = os.path.join(settings.MEDIA_ROOT, 'thumbnails', thumb_name)
+                    os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                    result = subprocess.run(
+                        [FFMPEG_PATH, '-y', '-i', sa.input_video.path,
+                         '-ss', '00:00:01', '-vframes', '1',
+                         '-vf', 'scale=480:-2', thumb_path],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    )
+                    if result.returncode == 0 and os.path.exists(thumb_path):
+                        with open(thumb_path, 'rb') as tf:
+                            sa.thumbnail.save(thumb_name, File(tf), save=False)
+                except Exception:
+                    pass
+
+                sa.save()
+
+                # Queue the full processing pipeline (same task as round uploads)
+                base_name = os.path.splitext(os.path.basename(sa.input_video.name))[0]
+                output_path = os.path.join(settings.MEDIA_ROOT, 'output', f"{base_name}_processed.mp4")
+                async_task(
+                    'shots.tasks.process_video_background',
+                    sa.pk, sa.input_video.path, output_path, None,
+                )
+
+                return redirect('shots:quick_swing_detail', pk=sa.pk)
+
+            except Exception:
+                logger.exception('quick_upload: failed to create ShotAnalysis')
+                form.add_error(None, 'Upload failed — please try again.')
+    else:
+        form = QuickUploadForm()
+
+    return render(request, 'shots/quick_upload.html', {'form': form})
+
+
+@login_required
+def quick_swings(request):
+    """Library of all quick-upload swings for the logged-in user.
+
+    Supports optional GET filters:
+        club        — exact club name
+        shape       — shot shape string (straight, draw, fade, slice, hook…)
+        score_min   — minimum overall AI score (0-100)
+        score_max   — maximum overall AI score (0-100)
+    """
+    from django.core.paginator import Paginator
+
+    qs = ShotAnalysis.objects.filter(
+        user=request.user,
+        is_quick_upload=True,
+    ).order_by('-created_at')
+
+    # Filtering
+    club_filter = request.GET.get('club', '').strip()
+    shape_filter = request.GET.get('shape', '').strip().lower()
+    score_min = request.GET.get('score_min', '').strip()
+    score_max = request.GET.get('score_max', '').strip()
+
+    if club_filter:
+        qs = qs.filter(club__iexact=club_filter)
+    if shape_filter:
+        qs = qs.filter(ai_shot_shape__iexact=shape_filter)
+    try:
+        if score_min:
+            qs = qs.filter(ai_overall_score__gte=int(score_min))
+    except (ValueError, TypeError):
+        score_min = ''
+    try:
+        if score_max:
+            qs = qs.filter(ai_overall_score__lte=int(score_max))
+    except (ValueError, TypeError):
+        score_max = ''
+
+    paginator = Paginator(qs, 12)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    # Build distinct club list for filter dropdown
+    from .forms import CLUB_CHOICES
+    available_clubs = [c[0] for c in CLUB_CHOICES if c[0]]
+
+    shot_shapes = ['straight', 'draw', 'fade', 'slice', 'hook', 'push', 'pull']
+
+    return render(request, 'shots/quick_swings.html', {
+        'page_obj': page_obj,
+        'available_clubs': available_clubs,
+        'shot_shapes': shot_shapes,
+        'club_filter': club_filter,
+        'shape_filter': shape_filter,
+        'score_min': score_min,
+        'score_max': score_max,
+        'total_count': qs.count(),
+    })
+
+
+@login_required
+def quick_swing_detail(request, pk):
+    """Full AI analysis detail page for a quick-upload swing."""
+    sa = get_object_or_404(ShotAnalysis, pk=pk, user=request.user, is_quick_upload=True)
+    return render(request, 'shots/quick_swing_detail.html', {
+        'analysis': sa,
+        'overlay_status_url': reverse('shots:overlay_status', args=[sa.pk]),
+        'chat_url': reverse('shots:ai_coach_chat', args=[sa.pk]),
+    })
+
+
+@login_required
+@require_POST
+def quick_reprocess(request, pk):
+    """Trigger overlay reprocessing for a quick-upload swing.
+
+    Accepts POST fields:
+        wireframe  — '1' to include pose skeleton overlay, '0' to exclude
+        map        — '1' to include Mapbox GPS map overlay, '0' to exclude
+
+    Both can be '1' simultaneously. Both '0' reprocesses to a clean video.
+    Course/hole text overlays are never applied to quick uploads.
+    """
+    sa = get_object_or_404(ShotAnalysis, pk=pk, user=request.user, is_quick_upload=True)
+
+    want_wireframe = request.POST.get('wireframe', '0') == '1'
+    want_map = request.POST.get('map', '0') == '1'
+
+    sa.overlay_requested = want_wireframe
+    sa.include_map = want_map
+    sa.include_course_text = False
+    sa.overlay_status = 'pending'
+    sa.status = 'processing'
+    sa.overlay_error_message = ''
+    sa.save()
+
+    try:
+        input_path = sa.input_video.path if sa.input_video else None
+        if not input_path:
+            return JsonResponse({'error': 'No input video available'}, status=400)
+
+        output_path = os.path.join(
+            settings.MEDIA_ROOT, 'output', f"quick_reprocess_{sa.pk}.mp4"
+        )
+        async_task(
+            'shots.tasks.process_video_background',
+            sa.pk, input_path, output_path, None,
+        )
+    except Exception as e:
+        logger.exception('quick_reprocess: failed to queue task for analysis %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'status': 'queued'})
