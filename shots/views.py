@@ -2576,6 +2576,7 @@ def quick_upload(request):
             notes = (form.cleaned_data.get('notes') or '').strip()
 
             try:
+                import tempfile as _tempfile
                 sa = ShotAnalysis(
                     user=request.user,
                     club=club,
@@ -2585,15 +2586,21 @@ def quick_upload(request):
                 )
                 sa.input_video.save(video_file.name, video_file, save=True)
 
+                # Resolve input path — S3-backed files raise NotImplementedError on .path
+                try:
+                    task_input = sa.input_video.path
+                except (NotImplementedError, ValueError):
+                    task_input = sa.input_video.url
+
                 # Best-effort thumbnail
                 try:
                     import uuid as _uuid
-                    from django.core.files.base import ContentFile
                     thumb_name = f"thumb_{_uuid.uuid4().hex}.jpg"
-                    thumb_path = os.path.join(settings.MEDIA_ROOT, 'thumbnails', thumb_name)
+                    _thumb_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
+                    thumb_path = os.path.join(_thumb_root, 'thumbnails', thumb_name)
                     os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
                     result = subprocess.run(
-                        [FFMPEG_PATH, '-y', '-i', sa.input_video.path,
+                        [FFMPEG_PATH, '-y', '-i', task_input,
                          '-ss', '00:00:01', '-vframes', '1',
                          '-vf', 'scale=480:-2', thumb_path],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -2608,10 +2615,11 @@ def quick_upload(request):
 
                 # Queue the full processing pipeline (same task as round uploads)
                 base_name = os.path.splitext(os.path.basename(sa.input_video.name))[0]
-                output_path = os.path.join(settings.MEDIA_ROOT, 'output', f"{base_name}_processed.mp4")
+                _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
+                output_path = os.path.join(_out_root, 'output', f"{base_name}_processed.mp4")
                 async_task(
                     'shots.tasks.process_video_background',
-                    sa.pk, sa.input_video.path, output_path, None,
+                    sa.pk, task_input, output_path, None,
                 )
 
                 return redirect('shots:quick_swing_detail', pk=sa.pk)

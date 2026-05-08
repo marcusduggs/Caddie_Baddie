@@ -46,9 +46,25 @@
     </svg>
     <div>
       <p class="font-semibold text-blue-800">Analysing your swing…</p>
-      <p class="text-sm text-blue-600">AI coaching and scores will appear below in a moment. Refresh this page to check.</p>
+      <p class="text-sm text-blue-600" id="processing-msg">AI coaching and scores will appear below automatically when ready.</p>
     </div>
   </div>
+  <script>
+    (function() {
+      var statusUrl = "{{ overlay_status_url }}";
+      var interval = setInterval(function() {
+        fetch(statusUrl, {credentials: 'same-origin'})
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.status === 'completed' || data.status === 'failed') {
+              clearInterval(interval);
+              window.location.reload();
+            }
+          })
+          .catch(function() {});
+      }, 6000);
+    })();
+  </script>
   {% elif analysis.status == 'failed' %}
   <div class="bg-red-50 border border-red-200 rounded-2xl p-5 mb-6">
     <p class="font-semibold text-red-800">⚠️ Processing failed</p>
