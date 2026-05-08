@@ -2730,13 +2730,16 @@ def quick_reprocess(request, pk):
     sa.save()
 
     try:
-        input_path = sa.input_video.path if sa.input_video else None
-        if not input_path:
+        if not sa.input_video:
             return JsonResponse({'error': 'No input video available'}, status=400)
+        try:
+            input_path = sa.input_video.path
+        except (NotImplementedError, ValueError):
+            input_path = sa.input_video.url
 
-        output_path = os.path.join(
-            settings.MEDIA_ROOT, 'output', f"quick_reprocess_{sa.pk}.mp4"
-        )
+        import tempfile as _tempfile
+        _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
+        output_path = os.path.join(_out_root, 'output', f"quick_reprocess_{sa.pk}.mp4")
         async_task(
             'shots.tasks.process_video_background',
             sa.pk, input_path, output_path, None,
