@@ -194,16 +194,36 @@ def process_video_with_overlay(input_path: str, output_path: str, *args, **kwarg
         logger.error("Input missing: %s", input_path)
         return None
 
+    def _build_text_label():
+        parts = []
+        if course_name:
+            parts.append(str(course_name))
+        if hole_number:
+            parts.append(f"Hole {hole_number}")
+        if hole_yardage:
+            parts.append(f"{hole_yardage}yd")
+        if club:
+            parts.append(str(club))
+        if hole_par:
+            parts.append(f"Par {hole_par}")
+        info = ' | '.join(parts)
+        return info.replace("'", "\\'").replace(':', '\\:')
+
+    needs_map = overlay_map_requested and coords
+    needs_text = include_course_text and FFMPEG_HAS_DRAWTEXT
+
     try:
-        # fast path: stream copy if no overlay requested
-        if not coords:
+        # Fast path: stream copy only when no visual changes are needed
+        if not needs_map and not needs_text:
             cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c', 'copy', output_path]
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if p.returncode == 0:
                 return output_path
+            # stream copy failed (e.g. container mismatch) — fall through to re-encode
 
+        # Fetch Mapbox static image when map overlay is requested and we have coords
         map_path = None
-        if coords:
+        if needs_map:
             try:
                 lon, lat = coords
             except Exception:
@@ -216,52 +236,46 @@ def process_video_with_overlay(input_path: str, output_path: str, *args, **kwarg
                     map_path = fetched
 
         if map_path:
-            # Build filter with optional drawtext if requested and available
-            filter_complex = "[0:v][1:v] overlay=main_w-overlay_w-10:10"
-            if include_course_text and FFMPEG_HAS_DRAWTEXT:
-                # Build a compact info string
-                parts = []
-                if course_name:
-                    parts.append(str(course_name))
-                if hole_number:
-                    parts.append(f"Hole {hole_number}")
-                if hole_yardage:
-                    parts.append(f"{hole_yardage}yd")
-                if club:
-                    parts.append(str(club))
-                if hole_par:
-                    parts.append(f"Par {hole_par}")
-                info = ' | '.join(parts)
-                # sanitize simple characters
-                info = info.replace("'", "\\'").replace(':', '\\:')
-                # append drawtext after overlay
-                filter_complex = f"{filter_complex},drawtext=text='{info}':fontcolor=white:fontsize=24:box=1:boxcolor=0x00000088:x=10:y=h-40"
-            elif include_course_text and not FFMPEG_HAS_DRAWTEXT:
-                logger.info('include_course_text requested but ffmpeg lacks drawtext; skipping text burn-in')
-
+            # Map overlay (bottom-right) + optional text burn-in (top-left)
+            if needs_text:
+                info = _build_text_label()
+                if info:
+                    filter_complex = (
+                        f"[0:v][1:v] overlay=main_w-overlay_w-10:main_h-overlay_h-10 [ov];"
+                        f"[ov] drawtext=text='{info}':fontcolor=white:fontsize=42:box=1:boxcolor=0x00000088:boxborderw=10:x=10:y=10"
+                    )
+                else:
+                    filter_complex = "[0:v][1:v] overlay=main_w-overlay_w-10:main_h-overlay_h-10"
+            else:
+                filter_complex = "[0:v][1:v] overlay=main_w-overlay_w-10:main_h-overlay_h-10"
             cmd = [
-                FFMPEG_PATH,
-                '-y',
+                FFMPEG_PATH, '-y',
                 '-i', input_path,
                 '-i', map_path,
                 '-filter_complex', filter_complex,
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-crf', '23',
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
                 '-c:a', 'copy',
                 output_path,
             ]
+        elif needs_text:
+            # Text-only burn-in (no map — either not requested or no GPS coords)
+            info = _build_text_label()
+            if info:
+                vf = f"drawtext=text='{info}':fontcolor=white:fontsize=42:box=1:boxcolor=0x00000088:boxborderw=10:x=10:y=10"
+                cmd = [
+                    FFMPEG_PATH, '-y',
+                    '-i', input_path,
+                    '-vf', vf,
+                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                    '-c:a', 'copy',
+                    output_path,
+                ]
+            else:
+                # No text content to burn — just re-encode
+                cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy', output_path]
         else:
-            cmd = [
-                FFMPEG_PATH,
-                '-y',
-                '-i', input_path,
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-crf', '23',
-                '-c:a', 'copy',
-                output_path,
-            ]
+            # Re-encode without overlays (stream copy failed above)
+            cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy', output_path]
 
         p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if p.returncode == 0 and os.path.exists(output_path):

@@ -2,9 +2,9 @@ import os
 import logging
 import requests
 
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from django.views.decorators.csrf import csrf_exempt
 import difflib
 import json
 
@@ -41,7 +41,7 @@ FALLBACK_COURSES = [
 ]
 
 
-@csrf_exempt
+@login_required
 @require_GET
 def golf_course_search(request):
     """Search for a golf course by name using the external Golf Course API.
@@ -93,11 +93,22 @@ def golf_course_search(request):
         logger.error('Golf Course API returned invalid JSON')
         return JsonResponse({'error': 'Golf Course API returned invalid JSON'}, status=502)
 
-    # Return API response directly (you may want to filter fields in production)
-    return JsonResponse({'data': data})
+    # Filter to only the fields the client needs
+    courses_raw = data if isinstance(data, list) else data.get('courses', data.get('data', {}).get('courses', []))
+    safe_courses = []
+    if isinstance(courses_raw, list):
+        for c in courses_raw:
+            if isinstance(c, dict):
+                safe_courses.append({
+                    'id': c.get('id') or c.get('course_id') or c.get('courseId'),
+                    'name': c.get('name') or c.get('course_name') or c.get('title'),
+                    'location': c.get('location') or c.get('city'),
+                    'tees': c.get('tees'),
+                })
+    return JsonResponse({'data': safe_courses})
 
 
-@csrf_exempt
+@login_required
 @require_GET
 def course_suggestions(request):
     """Return scored course-name suggestions for autocomplete.

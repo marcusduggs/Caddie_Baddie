@@ -7,12 +7,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Prefer setting DJANGO_SECRET_KEY in your environment rather than committing a secret here.
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY') or 'dev-only-insecure-secret-change-me'
 
-# Use environment variable for DEBUG (default True for local development)
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') in ('1', 'True', 'true')
+# Use environment variable for DEBUG (default False for safety; set DJANGO_DEBUG=1 locally)
+DEBUG = os.environ.get('DJANGO_DEBUG', '0') in ('1', 'True', 'true')
 
-# Allowed hosts
-# In development it's often convenient to allow all, but in production set a comma-separated list via ALLOWED_HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
+# Allowed hosts — must be explicitly configured in production
+_allowed_hosts_env = os.environ.get('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = _allowed_hosts_env.split(',') if _allowed_hosts_env else (['localhost', '127.0.0.1'] if DEBUG else [])
 
 # Security hardening toggles (applied only when DEBUG is False)
 if not DEBUG:
@@ -45,10 +45,27 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_q',
     'shots',
     'accounts.apps.AccountsConfig',
     'widget_tweaks',
 ]
+
+# Django-Q task queue — uses the existing database as broker (no Redis required).
+# Run the worker with: python manage.py qcluster
+Q_CLUSTER = {
+    'name': 'caddie_baddie',
+    'workers': int(os.environ.get('Q_WORKERS', '2')),
+    'timeout': 900,        # 15 min hard limit per task (long videos need time)
+    'retry': 1080,         # re-queue if not acknowledged within 18 min
+    'queue_limit': 50,     # don't pile up more than 50 pending tasks
+    'bulk': 10,
+    'orm': 'default',      # use Django's default database as broker
+    'save_limit': 500,     # keep last 500 task results for the admin dashboard
+    'max_attempts': 2,     # retry a failed task once before giving up
+    'ack_failures': True,  # acknowledge (remove from queue) even on failure
+    'catch_up': False,     # don't replay missed scheduled tasks on restart
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -96,7 +113,12 @@ else:
         }
     }
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

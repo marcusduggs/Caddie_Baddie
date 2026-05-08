@@ -74,6 +74,14 @@ class ShotAnalysis(models.Model):
     # Mark this shot as a favorite (shared to the public/favorites page)
     is_favorite = models.BooleanField(default=False)
 
+    # AI Swing Coach fields — populated asynchronously during background processing
+    ai_main_fault = models.TextField(blank=True, null=True)
+    ai_strength = models.TextField(blank=True, null=True)
+    ai_drill = models.TextField(blank=True, null=True)
+    ai_swing_thought = models.TextField(blank=True, null=True)
+    # Raw JSON snapshot of extracted swing metrics (stored for debugging / re-analysis)
+    ai_metrics_json = models.TextField(blank=True, null=True)
+
     def __str__(self):
         return f"Analysis {self.id} — {self.input_video.name if self.input_video else 'no-video'}"
 
@@ -124,28 +132,18 @@ class ShotRound(models.Model):
 
 
 class ShotDistance(models.Model):
-        """Stores GPS-derived shot locations and computed distances.
+    """Stores GPS-derived shot locations and computed distances."""
+    shot = models.ForeignKey('ShotAnalysis', on_delete=models.CASCADE, related_name='distances')
+    hole_number = models.IntegerField(blank=True, null=True)
+    origin_lat = models.FloatField(null=True, blank=True)
+    origin_lng = models.FloatField(null=True, blank=True)
+    landing_lat = models.FloatField(null=True, blank=True)
+    landing_lng = models.FloatField(null=True, blank=True)
+    previous_shot = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
-        Additive-only model that does not modify existing tables.
-        Fields:
-            - shot (FK to ShotAnalysis) : the analysis record this distance belongs to
-            - hole_number: optional hole number
-            - origin_lat, origin_lng: GPS origin (tee or previous landing)
-            - landing_lat, landing_lng: Landing location selected by user
-            - created_at: timestamp when the record was created
-            - previous_shot: optional FK to another ShotDistance
-        """
-        shot = models.ForeignKey('ShotAnalysis', on_delete=models.CASCADE, related_name='distances')
-        hole_number = models.IntegerField(blank=True, null=True)
-        origin_lat = models.FloatField(null=True, blank=True)
-        origin_lng = models.FloatField(null=True, blank=True)
-        landing_lat = models.FloatField(null=True, blank=True)
-        landing_lng = models.FloatField(null=True, blank=True)
-        previous_shot = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
-        created_at = models.DateTimeField(auto_now_add=True)
-
-        def __str__(self):
-                return f"ShotDistance {self.pk} for shot {self.shot_id}"
+    def __str__(self):
+        return f"ShotDistance {self.pk} for shot {self.shot_id}"
 
 
 class HolePin(models.Model):

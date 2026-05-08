@@ -89,6 +89,8 @@ def render_pose_wireframe(input_path: str,
             out = None
 
     use_ffmpeg_seq = False
+    tmp_dir = None
+    frame_seq_paths = []
     if out is None or not out.isOpened():
         # Fall back to FFmpeg image sequence encoding
         ffmpeg_path = shutil.which('ffmpeg')
@@ -102,7 +104,6 @@ def render_pose_wireframe(input_path: str,
             raise RuntimeError(f'Failed to open cv2.VideoWriter with codecs={tried_codecs} and ffmpeg not found; check your OpenCV build or install ffmpeg')
         use_ffmpeg_seq = True
         tmp_dir = tempfile.mkdtemp(prefix='pose_frames_')
-        frame_seq_paths = []
 
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
@@ -166,7 +167,7 @@ def render_pose_wireframe(input_path: str,
                 # update wrist trail (approximate club path)
                 try:
                     lw = pix(15)
-                    rw = pix(19)
+                    rw = pix(16)
                     wrist_history.insert(0, {'left': lw, 'right': rw, 'frame': frame_index})
                     if len(wrist_history) > wrist_trail_len:
                         wrist_history = wrist_history[:wrist_trail_len]
