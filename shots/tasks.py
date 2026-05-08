@@ -39,6 +39,24 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
         logger.error('process_video_background: ShotAnalysis %s not found', analysis_pk)
         return
 
+    # If input_path is an S3/HTTPS URL, download to a local temp file so all
+    # downstream tools (ffmpeg, cv2, ffprobe) can read it via a real file path.
+    _tmp_input = None
+    if input_path.startswith('http://') or input_path.startswith('https://'):
+        try:
+            import urllib.request
+            suffix = os.path.splitext(input_path.split('?')[0])[-1] or '.mp4'
+            fd, _tmp_input = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            logger.info('Downloading remote input %s -> %s', input_path, _tmp_input)
+            urllib.request.urlretrieve(input_path, _tmp_input)
+            input_path = _tmp_input
+        except Exception:
+            logger.exception('Failed to download remote input for analysis %s', analysis_pk)
+            if _tmp_input and os.path.exists(_tmp_input):
+                os.remove(_tmp_input)
+            _tmp_input = None
+
     try:
         sa.status = 'processing'
         sa.error_message = ''
@@ -142,6 +160,12 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
             sa.save(update_fields=['status', 'error_message', 'updated_at'])
         except Exception:
             logger.exception('Failed to save error state for analysis %s', analysis_pk)
+    finally:
+        if _tmp_input and os.path.exists(_tmp_input):
+            try:
+                os.remove(_tmp_input)
+            except Exception:
+                pass
 
 
 def _apply_pose_overlay(sa, output_path):
