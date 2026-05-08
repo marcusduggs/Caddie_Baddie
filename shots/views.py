@@ -35,8 +35,8 @@ import subprocess
 import uuid
 from utils.overlay import process_video_with_overlay, FFMPEG_PATH
 from .video_processing import render_pose_wireframe
-import threading
 import requests
+from django_q.tasks import async_task
 import urllib.parse
 import logging
 import re
@@ -91,8 +91,10 @@ def probe_video_creation_time(path):
     """
     ffprobe_dt = None
     try:
-        # Call ffprobe to get format tags
-        cmd = [FFMPEG_PATH or 'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', path]
+        # Call ffprobe to get format tags (must use ffprobe binary, not ffmpeg)
+        import shutil as _shutil
+        ffprobe_bin = _shutil.which('ffprobe') or 'ffprobe'
+        cmd = [ffprobe_bin, '-v', 'quiet', '-print_format', 'json', '-show_format', path]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         if proc.returncode == 0 and proc.stdout:
             import json
@@ -153,132 +155,7 @@ def probe_video_creation_time(path):
 GOLF_COURSE_API_KEY_HARDCODED = 'EFJRDJOWXMKRBIKSQIDZSFLOCY'  # local testing key provided by user
 
 
-def process_video_background(analysis_pk, input_path, output_path, hole_par=None):
-    """Background worker to process a video file and attach the processed file to the ShotAnalysis.
-
-    Updates ShotAnalysis.status and error_message fields.
-    """
-    try:
-        sa = ShotAnalysis.objects.get(pk=analysis_pk)
-        sa.status = 'processing'
-        sa.save()
-
-        logger.info(f"Background processing started for analysis {analysis_pk}: {input_path} -> {output_path}")
-
-        # Non-blocking: attempt to extract GPS from video metadata and persist as a ShotDistance
-        try:
-            from utils.overlay import _extract_coords_with_ffprobe
-            coords = _extract_coords_with_ffprobe(input_path)
-            if coords:
-                lon, lat = coords
-                try:
-                    from .models import ShotDistance
-                    # create an origin-only ShotDistance so the analysis page can show a map immediately
-                    ShotDistance.objects.create(shot=sa, origin_lat=float(lat), origin_lng=float(lon), hole_number=getattr(sa, 'hole_number', None))
-                    logger.info(f"Persisted extracted GPS for analysis {analysis_pk}: lat={lat}, lon={lon}")
-                except Exception:
-                    logger.exception('Failed to persist extracted GPS for analysis %s', analysis_pk)
-        except Exception:
-            # Extraction failures are non-fatal; continue processing
-            logger.debug('GPS extraction failed or unavailable for analysis %s', analysis_pk)
-
-        # Run the overlay processing (wrap any exceptions)
-        try:
-            process_video_with_overlay(
-                input_path,
-                output_path,
-                None,
-                sa.course_name,
-                sa.hole_number,
-                sa.hole_yardage,
-                sa.club,
-                hole_par=hole_par,
-                overlay_map_requested=getattr(sa, 'include_map', False),
-                include_course_text=getattr(sa, 'include_course_text', False)
-            )
-        except Exception as e:
-            logger.exception('Overlay/map processing failed for analysis %s', analysis_pk)
-            sa.status = 'failed'
-            sa.error_message = f'Overlay processing failed: {e}'
-            sa.save()
-            return
-
-        # Attach processed file to model
-        if os.path.exists(output_path):
-            with open(output_path, 'rb') as f:
-                sa.processed_video.save(os.path.basename(output_path), File(f), save=False)
-
-        # If user requested a pose overlay, render it onto the processed video file
-        # We render to a temporary file first, then replace the processed_video with
-        # the overlayed result so the user sees a single processed video (no separate
-        # overlayed_video file).
-        if getattr(sa, 'overlay_requested', False):
-            sa.overlay_status = 'overlaying'
-            sa.save()
-            try:
-                from .video_processing import render_pose_wireframe
-                import tempfile
-                fd, overlay_tmp = tempfile.mkstemp(suffix='.mp4')
-                os.close(fd)
-                try:
-                    overlay_path = render_pose_wireframe(output_path, output_path=overlay_tmp)
-                    if overlay_path and os.path.exists(overlay_path):
-                        # Only attach the overlayed file if it is non-empty. Some renderer
-                        # failures leave an empty file behind; we must avoid overwriting
-                        # a valid processed video with a zero-byte file.
-                        try:
-                            if os.path.getsize(overlay_path) > 0:
-                                with open(overlay_path, 'rb') as ofp:
-                                    # Use the same filename as the original processed output so URLs remain stable.
-                                    sa.processed_video.save(os.path.basename(output_path), File(ofp), save=False)
-                                sa.overlay_status = 'completed'
-                                sa.overlay_error_message = ''
-                            else:
-                                sa.overlay_status = 'failed'
-                                sa.overlay_error_message = 'Overlay renderer produced an empty file; processed video preserved.'
-                        except Exception as e:
-                            sa.overlay_status = 'failed'
-                            sa.overlay_error_message = f'Failed to attach overlayed file: {e}'
-                    else:
-                        sa.overlay_status = 'failed'
-                        sa.overlay_error_message = 'Overlay renderer did not produce output.'
-                except Exception as e:
-                    sa.overlay_status = 'failed'
-                    sa.overlay_error_message = str(e)
-                finally:
-                    try:
-                        if os.path.exists(overlay_tmp):
-                            os.remove(overlay_tmp)
-                    except Exception:
-                        pass
-            except Exception as e:
-                sa.overlay_status = 'failed'
-                sa.overlay_error_message = str(e)
-            finally:
-                try:
-                    sa.save()
-                except Exception:
-                    pass
-        # Persist hole_par to the DB in case it was provided transiently
-        try:
-            if hole_par is not None:
-                sa.hole_par = int(hole_par)
-        except Exception:
-            # Ignore parsing errors for safety
-            pass
-        sa.status = 'completed'
-        sa.error_message = ''
-        sa.save()
-        logger.info(f"Background processing completed for analysis {analysis_pk}")
-    except Exception as e:
-        logger.exception("Error in background video processing")
-        try:
-            sa = ShotAnalysis.objects.get(pk=analysis_pk)
-            sa.status = 'failed'
-            sa.error_message = str(e)
-            sa.save()
-        except Exception:
-            logger.exception('Failed to save ShotAnalysis after processing error')
+from .tasks import process_video_background  # noqa: F401 — kept for any external callers
 
 
 @login_required
@@ -322,8 +199,9 @@ def delete_round_hole(request, round_pk, hole):
     return redirect('shots:round_holes', round_pk=round_pk)
 
 
+@login_required
 def home(request):
-    shots = Shot.objects.order_by('-created_at')[:100]
+    shots = Shot.objects.filter(user=request.user).order_by('-created_at')[:100]
     count = shots.count()
     avg_distance = shots.aggregate_avg = None
     if count:
@@ -359,11 +237,13 @@ def home(request):
     return render(request, 'shots/home.html', context)
 
 
+@login_required
 def create_shot(request):
     if request.method == 'POST':
         form = ShotForm(request.POST, request.FILES)
         if form.is_valid():
             shot = form.save(commit=False)
+            shot.user = request.user
             # If a video was uploaded, try to extract coords
             uploaded = request.FILES.get('video')
             if uploaded:
@@ -433,14 +313,6 @@ def analyze_upload(request):
             if n and n.lower() not in seen:
                 seen.add(n.lower())
                 combined.append((n, n))
-        # Ensure the posted selected_tee is accepted even if API parsing missed it
-        posted_selected = request.POST.get('selected_tee')
-        if posted_selected and posted_selected not in seen:
-            try:
-                seen.add(posted_selected)
-                combined.insert(1, (posted_selected, posted_selected))
-            except Exception:
-                pass
         # Ensure the posted selected_tee is accepted even if API parsing missed it
         posted_selected = request.POST.get('selected_tee')
         if posted_selected and posted_selected not in seen:
@@ -565,7 +437,7 @@ def analyze_upload(request):
                     try:
                         analysis.hole_number = int(hole_val)
                     except Exception:
-                        analysis.hole_number = hole_val
+                        pass  # leave hole_number unset rather than assigning a non-int
             except Exception:
                 pass
             # Defensive: ensure distance is set to a valid float to satisfy the
@@ -594,6 +466,18 @@ def analyze_upload(request):
             # Save each uploaded file immediately so we can probe the saved file on disk
             # for creation time. This avoids consuming the UploadedFile iterator via
             # temporary copies and ensures we probe the final stored file.
+            # Resolve club/distance from form now so per-file loop can reference them
+            club_val = None
+            distance_val = None
+            try:
+                club_val = form.cleaned_data.get('club')
+            except Exception:
+                club_val = None
+            try:
+                distance_val = form.cleaned_data.get('distance')
+            except Exception:
+                distance_val = None
+
             saved_items = []
             for original_index, uf in enumerate(uploaded_files):
                 try:
@@ -623,7 +507,7 @@ def analyze_upload(request):
                             try:
                                 a_temp.hole_number = int(hole_val)
                             except Exception:
-                                a_temp.hole_number = hole_val
+                                pass  # leave hole_number unset rather than assigning a non-int
                     except Exception:
                         pass
                     # Attach round if previously resolved
@@ -744,17 +628,6 @@ def analyze_upload(request):
             except Exception:
                 # If any error during ordering, fall back to current order
                 pass
-            # Reuse cleaned form data where available
-            club_val = None
-            distance_val = None
-            try:
-                club_val = form.cleaned_data.get('club')
-            except Exception:
-                club_val = None
-            try:
-                distance_val = form.cleaned_data.get('distance')
-            except Exception:
-                distance_val = None
 
             overlay_requested = bool(request.POST.get('overlay_pose'))
 
@@ -796,8 +669,7 @@ def analyze_upload(request):
                         base_name = os.path.splitext(os.path.basename(a_saved.input_video.name))[0]
                         output_filename = f"{base_name}_processed.mp4"
                         output_path = os.path.join(settings.MEDIA_ROOT, 'output', output_filename)
-                        t = threading.Thread(target=process_video_background, args=(a_saved.pk, a_saved.input_video.path, output_path, None), daemon=True)
-                        t.start()
+                        async_task('shots.tasks.process_video_background', a_saved.pk, a_saved.input_video.path, output_path, None)
                     except Exception:
                         logger.exception('Failed to start background processing for analysis %s', getattr(a_saved, 'pk', None))
 
@@ -932,9 +804,13 @@ def analyze_upload(request):
     })
 
 
+@login_required
 def analysis_detail(request, pk):
     """Display the analysis detail page showing both original and processed videos."""
     analysis = get_object_or_404(ShotAnalysis, pk=pk)
+    if analysis.user != request.user:
+        from django.http import Http404
+        raise Http404
     # Support POST to save a user-selected landing point for distance calculation.
     if request.method == 'POST':
         # Expect landing_lat and landing_lng in POST data (AJAX or form submit)
@@ -1121,22 +997,22 @@ def reprocess_overlays(request, pk):
         messages.error(request, 'Failed to update shot settings.')
         return redirect('shots:analysis_detail', pk=pk)
 
-    # Enqueue background processing (reuse existing helper)
+    # Enqueue background reprocessing via Django-Q
     try:
-        import threading
-        # Prefer to run overlay processing against the original input video
         input_path = sa.input_video.path if sa.input_video else None
-        output_fname = None
         if input_path:
-            # Run in background thread
-            t = threading.Thread(target=process_video_background, args=(sa.pk, input_path, os.path.join(settings.MEDIA_ROOT, 'output', f"reprocess_{sa.pk}.mp4"), None))
-            t.daemon = True
-            t.start()
-            messages.success(request, 'Reprocessing started — the page will update when complete.')
+            async_task(
+                'shots.tasks.process_video_background',
+                sa.pk,
+                input_path,
+                os.path.join(settings.MEDIA_ROOT, 'output', f"reprocess_{sa.pk}.mp4"),
+                None,
+            )
+            messages.success(request, 'Reprocessing queued — the page will update when complete.')
         else:
             messages.error(request, 'No input video available to reprocess.')
     except Exception as e:
-        messages.error(request, f'Failed to start reprocessing: {e}')
+        messages.error(request, f'Failed to queue reprocessing: {e}')
 
     return redirect('shots:analysis_detail', pk=pk)
 
@@ -1167,7 +1043,6 @@ def overlay_status(request, pk):
 
 from django.contrib.auth.decorators import login_required
 
-@login_required
 @login_required
 def shot_list(request):
     """Show all uploaded shot videos for the logged-in user."""
@@ -1203,15 +1078,16 @@ def delete_shot(request, pk):
 
         sa.delete()
         messages.success(request, 'Shot deleted successfully.')
-        # Prefer explicit next param, otherwise fall back to HTTP_REFERER, then to shots list
-        redirect_to = request.POST.get('next') or request.GET.get('next') or request.META.get('HTTP_REFERER')
-        if not redirect_to:
-            try:
-                from django.urls import reverse
-                redirect_to = reverse('shots:shot_list')
-            except Exception:
-                redirect_to = '/shots/'
-        return redirect(redirect_to)
+        # Only redirect to HTTP_REFERER (same-origin); never follow an attacker-supplied next param
+        referer = request.META.get('HTTP_REFERER', '')
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+        if parsed.scheme in ('http', 'https') and parsed.netloc == request.get_host():
+            return redirect(referer)
+        try:
+            return redirect(reverse('shots:shot_list'))
+        except Exception:
+            return redirect('/shots/')
 
     # For non-POST requests, attempt to send the user back to the page they came from
     back = request.META.get('HTTP_REFERER')
@@ -1640,12 +1516,12 @@ def delete_round(request, round_pk):
     from .models import ShotRound
     if request.method != 'POST':
         messages.error(request, 'Invalid request method for deleting a round.')
-        return redirect(request.META.get('HTTP_REFERER', 'shots:rounds_list'))
+        return redirect(request.META.get('HTTP_REFERER') or reverse('shots:rounds_list'))
 
     round_obj = get_object_or_404(ShotRound, pk=round_pk)
     if round_obj.user_id != getattr(request.user, 'pk', None):
         messages.error(request, 'You do not have permission to delete this round.')
-        return redirect(request.META.get('HTTP_REFERER', 'shots:rounds_list'))
+        return redirect(request.META.get('HTTP_REFERER') or reverse('shots:rounds_list'))
 
     # Delete associated ShotAnalysis entries and their files
     related = ShotAnalysis.objects.filter(round=round_obj)
@@ -1769,7 +1645,7 @@ def toggle_favorite(request, pk):
     else:
         messages.success(request, 'Shot removed from favorites.')
 
-    return redirect(request.META.get('HTTP_REFERER', 'shots:shot_list'))
+    return redirect(request.META.get('HTTP_REFERER') or reverse('shots:shot_list'))
 
 
 @login_required
@@ -1799,7 +1675,9 @@ def course_holes(request, course_slug):
         refresh = True
         if cm:
             import datetime
-            age = datetime.datetime.utcnow() - cm.fetched_at.replace(tzinfo=None)
+            now_utc = datetime.datetime.now(tz=datetime.timezone.utc)
+            fetched_aware = cm.fetched_at if cm.fetched_at.tzinfo else cm.fetched_at.replace(tzinfo=datetime.timezone.utc)
+            age = now_utc - fetched_aware
             if age.days < CACHE_TTL_DAYS:
                 # use cache
                 course_info['address'] = cm.address
@@ -2088,11 +1966,12 @@ def hole_shot_map(request, hole):
                             lat = float(lat_ex)
                             lng = float(lon_ex)
                             coord_type = 'extracted'
-                            # Persist a ShotDistance record so the map becomes authoritative
+                            # Persist a ShotDistance only if none exists yet (avoid duplicate records on page refresh)
                             try:
                                 from .models import ShotDistance
-                                ShotDistance.objects.create(shot=analysis, origin_lat=float(lat), origin_lng=float(lng), hole_number=hole_num)
-                                # mark distance_id for template use
+                                existing_sd = ShotDistance.objects.filter(shot=analysis).first()
+                                if not existing_sd:
+                                    ShotDistance.objects.create(shot=analysis, origin_lat=float(lat), origin_lng=float(lng), hole_number=hole_num)
                                 distance_id = ShotDistance.objects.filter(shot=analysis).order_by('-created_at').first().pk
                             except Exception:
                                 # Non-fatal: log and continue
