@@ -134,6 +134,37 @@
       {% endif %}
     </nav>
 
+    <!-- ── Email verification banner ── -->
+    {% if user.is_authenticated and not user.email_verified %}
+    <div id="verify-banner" class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-center text-sm flex items-center justify-center gap-3 flex-wrap">
+      <span class="text-amber-800 font-medium">Please verify your email address to secure your account.</span>
+      <form method="post" action="{% url 'resend_verification' %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="text-amber-900 font-bold underline hover:no-underline text-sm">
+          Resend email
+        </button>
+      </form>
+      <button onclick="document.getElementById('verify-banner').style.display='none'"
+              class="text-amber-400 hover:text-amber-700 text-lg leading-none" aria-label="Dismiss">
+        &times;
+      </button>
+    </div>
+    {% endif %}
+
+    <!-- ── Django messages ── -->
+    {% if messages %}
+    <div class="max-w-6xl mx-auto px-4 pt-4 space-y-2">
+      {% for message in messages %}
+      <div class="px-4 py-3 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-green-50 text-green-800 border border-green-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200
+        {% else %}bg-blue-50 text-blue-800 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- ── Page content ── -->
     <main class="flex-1">
       {% block content %}{% endblock %}

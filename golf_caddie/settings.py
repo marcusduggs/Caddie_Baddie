@@ -152,6 +152,31 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB (in bytes)
 # Custom user model for email authentication
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
+# ── Email (AWS SES via SMTP) ────────────────────────────────────────────────
+# Set these environment variables in production:
+#   AWS_SES_SMTP_USER      → SMTP username from IAM → SES SMTP credentials
+#   AWS_SES_SMTP_PASSWORD  → SMTP password from IAM → SES SMTP credentials
+#   AWS_SES_REGION         → e.g. us-east-1 (default)
+#   DEFAULT_FROM_EMAIL     → e.g. noreply@yourdomain.com
+_ses_region = os.environ.get('AWS_SES_REGION', 'us-east-1')
+EMAIL_HOST = f'email-smtp.{_ses_region}.amazonaws.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('AWS_SES_SMTP_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('AWS_SES_SMTP_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@caddiebadie.com')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Use console backend locally when SES credentials are not set
+if EMAIL_HOST_USER:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Password reset uses Django's built-in auth views (already wired via django.contrib.auth.urls)
+LOGIN_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/'
+
 # Authentication backend for email login
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
