@@ -1,7 +1,6 @@
 absl-py==2.4.0
 asgiref==3.11.0
 attrs==25.4.0
-backports.zoneinfo==0.2.1
 certifi==2026.1.4
 cffi==2.0.0
 django-q2==1.7.3
