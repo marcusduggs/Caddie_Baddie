@@ -57,6 +57,19 @@ def _resolve_binary(name: str):
 FFMPEG_PATH = _resolve_binary("ffmpeg")
 FFPROBE_PATH = _resolve_binary("ffprobe")
 
+# Check whether this ffmpeg build supports the drawtext filter
+def _check_drawtext() -> bool:
+    try:
+        result = subprocess.run(
+            [FFMPEG_PATH, "-filters"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        return "drawtext" in result.stdout
+    except Exception:
+        return False
+
+FFMPEG_HAS_DRAWTEXT = _check_drawtext()
+
 
 def _probe_width(path):
     """Probe video width using ffprobe."""
@@ -178,7 +191,7 @@ def _extract_coords_with_ffprobe(video_path):
         return None
 
 
-def _fetch_mapbox_static_image(lon, lat, output_path, width=500, height=600, zoom=16):
+def _fetch_mapbox_static_image(lon, lat, output_path, width=280, height=336, zoom=17):
     """
     Fetch a static map image from Mapbox Static Images API.
     
@@ -262,8 +275,8 @@ def process_video_with_overlay(input_path: str, output_path: str, *args, **kwarg
     """
     # Pull canonical params out of args/kwargs and support older call signatures
     coords = None
-    map_width = kwargs.get('map_width', 500)
-    map_height = kwargs.get('map_height', 600)
+    map_width = kwargs.get('map_width', 280)
+    map_height = kwargs.get('map_height', 336)
     include_course_text = kwargs.get('include_course_text', False)
     overlay_map_requested = kwargs.get('overlay_map_requested', False)
 

@@ -2458,3 +2458,44 @@ def fetch_hole_info(course_name, hole, preferred_tee=None):
     except Exception:
         pass
     return {}
+
+
+# ---------------------------------------------------------------------------
+# AI Coach chat endpoint
+# ---------------------------------------------------------------------------
+
+@login_required
+def ai_coach_chat(request, pk):
+    """Accept a follow-up question and return a contextual AI coaching answer.
+
+    POST body (JSON): {"question": "..."}
+    Response (JSON): {"answer": "..."} or {"error": "..."}
+    """
+    import json as _json
+    from django.http import JsonResponse
+    from .models import ShotAnalysis
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    sa = get_object_or_404(ShotAnalysis, pk=pk, user=request.user)
+
+    try:
+        body = _json.loads(request.body)
+        question = (body.get('question') or '').strip()
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON body'}, status=400)
+
+    if not question:
+        return JsonResponse({'error': 'Question is required'}, status=400)
+
+    if len(question) > 500:
+        return JsonResponse({'error': 'Question too long (max 500 characters)'}, status=400)
+
+    try:
+        from .ai.chat_agent import answer_question
+        answer = answer_question(question, sa.pk, request.user.pk)
+        return JsonResponse({'answer': answer})
+    except Exception:
+        logger.exception('ai_coach_chat: unexpected error for analysis %s', pk)
+        return JsonResponse({'error': 'Could not process your question. Please try again.'}, status=500)

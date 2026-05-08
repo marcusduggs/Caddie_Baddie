@@ -82,6 +82,27 @@ class ShotAnalysis(models.Model):
     # Raw JSON snapshot of extracted swing metrics (stored for debugging / re-analysis)
     ai_metrics_json = models.TextField(blank=True, null=True)
 
+    # Swing scores (0-100) computed by scoring_engine
+    ai_overall_score = models.IntegerField(blank=True, null=True)
+    ai_tempo_score = models.IntegerField(blank=True, null=True)
+    ai_balance_score = models.IntegerField(blank=True, null=True)
+    ai_rotation_score = models.IntegerField(blank=True, null=True)
+    ai_posture_score = models.IntegerField(blank=True, null=True)
+    ai_sequencing_score = models.IntegerField(blank=True, null=True)
+    ai_consistency_score = models.IntegerField(blank=True, null=True)
+
+    # Shot shape estimate from biomechanical indicators
+    ai_shot_shape = models.CharField(max_length=20, blank=True, null=True)
+
+    # Tour pro comparison narrative
+    ai_pro_comparison = models.TextField(blank=True, null=True)
+
+    # Cross-session trend summary from swing memory
+    ai_trend_summary = models.TextField(blank=True, null=True)
+
+    # JSON dict mapping position -> MEDIA_ROOT-relative path for swing snapshots
+    ai_snapshots_json = models.TextField(blank=True, null=True)
+
     def __str__(self):
         return f"Analysis {self.id} — {self.input_video.name if self.input_video else 'no-video'}"
 
@@ -144,6 +165,36 @@ class ShotDistance(models.Model):
 
     def __str__(self):
         return f"ShotDistance {self.pk} for shot {self.shot_id}"
+
+
+class SwingTendency(models.Model):
+    """Persistent record of a recurring swing fault or pattern for a user.
+
+    Updated each time a new swing analysis detects the same tendency, so the
+    AI coach can reference multi-session trends and celebrate improvements.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="swing_tendencies",
+    )
+    tendency_type = models.CharField(max_length=50)
+    label = models.CharField(max_length=100)
+    occurrence_count = models.IntegerField(default=1)
+    last_seen_analysis = models.ForeignKey(
+        "ShotAnalysis",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [["user", "tendency_type"]]
+
+    def __str__(self):
+        return f"{self.user_id} — {self.tendency_type} ×{self.occurrence_count}"
 
 
 class HolePin(models.Model):

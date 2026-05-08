@@ -193,6 +193,273 @@
     </div>
     {% endif %}
 
+    <!-- ═══════════════════════════════════════════════════════════
+         SWING SCORE DASHBOARD
+    ═══════════════════════════════════════════════════════════ -->
+    {% if analysis.ai_overall_score is not None %}
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-xl font-semibold mb-5">📊 Swing Score Dashboard</h3>
+
+      <!-- Overall score ring -->
+      <div class="flex flex-col sm:flex-row items-center gap-6 mb-6">
+        <div class="flex-shrink-0 text-center">
+          {% with s=analysis.ai_overall_score %}
+          <div class="relative inline-flex items-center justify-center w-28 h-28 rounded-full
+            {% if s >= 70 %}bg-green-100 border-4 border-green-400
+            {% elif s >= 50 %}bg-yellow-100 border-4 border-yellow-400
+            {% else %}bg-red-100 border-4 border-red-400{% endif %}">
+            <div class="text-center">
+              <span class="text-3xl font-bold
+                {% if s >= 70 %}text-green-700{% elif s >= 50 %}text-yellow-700{% else %}text-red-700{% endif %}">
+                {{ s }}
+              </span>
+              <span class="block text-xs text-gray-500 font-medium">/100</span>
+            </div>
+          </div>
+          <p class="mt-2 text-sm font-semibold text-gray-700">
+            {% if s >= 85 %}Excellent{% elif s >= 70 %}Good{% elif s >= 50 %}Average{% else %}Needs Work{% endif %}
+          </p>
+          {% endwith %}
+        </div>
+
+        <!-- Score breakdown bars -->
+        <div class="flex-1 w-full space-y-3">
+          {% with dims=analysis %}
+
+          {% if dims.ai_tempo_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Tempo</span>
+              <span class="font-semibold
+                {% if dims.ai_tempo_score >= 70 %}text-green-600{% elif dims.ai_tempo_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_tempo_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_tempo_score >= 70 %}bg-green-500{% elif dims.ai_tempo_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_tempo_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_balance_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Balance</span>
+              <span class="font-semibold
+                {% if dims.ai_balance_score >= 70 %}text-green-600{% elif dims.ai_balance_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_balance_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_balance_score >= 70 %}bg-green-500{% elif dims.ai_balance_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_balance_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_rotation_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Rotation</span>
+              <span class="font-semibold
+                {% if dims.ai_rotation_score >= 70 %}text-green-600{% elif dims.ai_rotation_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_rotation_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_rotation_score >= 70 %}bg-green-500{% elif dims.ai_rotation_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_rotation_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_posture_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Posture</span>
+              <span class="font-semibold
+                {% if dims.ai_posture_score >= 70 %}text-green-600{% elif dims.ai_posture_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_posture_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_posture_score >= 70 %}bg-green-500{% elif dims.ai_posture_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_posture_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_sequencing_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Sequencing</span>
+              <span class="font-semibold
+                {% if dims.ai_sequencing_score >= 70 %}text-green-600{% elif dims.ai_sequencing_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_sequencing_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_sequencing_score >= 70 %}bg-green-500{% elif dims.ai_sequencing_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_sequencing_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_consistency_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Consistency</span>
+              <span class="font-semibold
+                {% if dims.ai_consistency_score >= 70 %}text-green-600{% elif dims.ai_consistency_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_consistency_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_consistency_score >= 70 %}bg-green-500{% elif dims.ai_consistency_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_consistency_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% endwith %}
+        </div>
+      </div>
+
+      <!-- Shot shape + Pro comparison badges -->
+      <div class="flex flex-wrap gap-3 mt-2">
+        {% if analysis.ai_shot_shape and analysis.ai_shot_shape != 'unknown' %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+          {% if analysis.ai_shot_shape == 'straight' or analysis.ai_shot_shape == 'draw' %}bg-green-100 text-green-800
+          {% elif analysis.ai_shot_shape == 'fade' %}bg-blue-100 text-blue-800
+          {% elif analysis.ai_shot_shape == 'slice' or analysis.ai_shot_shape == 'hook' %}bg-red-100 text-red-800
+          {% else %}bg-gray-100 text-gray-700{% endif %}">
+          ⛳ Shot Shape: {{ analysis.ai_shot_shape|title }}
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Pro comparison -->
+      {% if analysis.ai_pro_comparison %}
+      <div class="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+        <p class="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">🏆 Tour Pro Comparison</p>
+        <p class="text-sm text-gray-800 leading-relaxed">{{ analysis.ai_pro_comparison }}</p>
+      </div>
+      {% endif %}
+
+      <!-- Trend summary -->
+      {% if analysis.ai_trend_summary %}
+      <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+        <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1">📈 Trend Analysis</p>
+        <p class="text-sm text-gray-800 leading-relaxed">{{ analysis.ai_trend_summary }}</p>
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         CONVERSATIONAL AI COACH
+    ═══════════════════════════════════════════════════════════ -->
+    {% if analysis.ai_main_fault or analysis.ai_overall_score is not None %}
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-xl font-semibold mb-2">💬 Ask Your AI Coach</h3>
+      <p class="text-sm text-gray-500 mb-4">Ask a follow-up question about your swing. The coach will use your specific metrics to respond.</p>
+
+      <div class="flex gap-2">
+        <input type="text" id="coach-question"
+               placeholder="e.g. Why do I keep slicing? What drill should I focus on?"
+               class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+               maxlength="500" />
+        <button id="coach-ask-btn"
+                class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center gap-1">
+          Ask
+        </button>
+      </div>
+
+      <!-- Quick question chips -->
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
+          Why do I slice?
+        </button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
+          What's my biggest issue?
+        </button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
+          How can I add distance?
+        </button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
+          Explain my tempo score
+        </button>
+      </div>
+
+      <!-- Response area -->
+      <div id="coach-response" class="hidden mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+        <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">🤖 Coach Response</p>
+        <p id="coach-response-text" class="text-sm text-gray-800 leading-relaxed"></p>
+      </div>
+      <div id="coach-loading" class="hidden mt-4 text-sm text-gray-500 flex items-center gap-2">
+        <svg class="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        Thinking...
+      </div>
+    </div>
+
+    <script>
+    (function () {
+      const chatUrl = "{% url 'shots:ai_coach_chat' analysis.pk %}";
+      const csrfToken = "{{ csrf_token }}";
+
+      function askCoach(question) {
+        if (!question.trim()) return;
+        document.getElementById('coach-response').classList.add('hidden');
+        document.getElementById('coach-loading').classList.remove('hidden');
+        document.getElementById('coach-ask-btn').disabled = true;
+
+        fetch(chatUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ question: question.trim() }),
+        })
+          .then(r => r.json())
+          .then(data => {
+            document.getElementById('coach-response-text').textContent =
+              data.answer || data.error || 'No response received.';
+            document.getElementById('coach-response').classList.remove('hidden');
+          })
+          .catch(() => {
+            document.getElementById('coach-response-text').textContent =
+              'Could not connect to the AI coach. Please try again.';
+            document.getElementById('coach-response').classList.remove('hidden');
+          })
+          .finally(() => {
+            document.getElementById('coach-loading').classList.add('hidden');
+            document.getElementById('coach-ask-btn').disabled = false;
+          });
+      }
+
+      document.getElementById('coach-ask-btn').addEventListener('click', function () {
+        askCoach(document.getElementById('coach-question').value);
+      });
+
+      document.getElementById('coach-question').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') askCoach(this.value);
+      });
+
+      document.querySelectorAll('.coach-chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          document.getElementById('coach-question').value = this.textContent.trim();
+          askCoach(this.textContent.trim());
+        });
+      });
+
+    })();
+    </script>
+    {% endif %}
+
     <!-- Edit overlays / Re-analyze modal trigger -->
     <div class="mt-6">
       <button id="edit-overlays-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Edit Overlays & Re-analyze</button>

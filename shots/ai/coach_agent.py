@@ -87,6 +87,9 @@ def analyze_swing(
     metrics: Dict,
     club: str = "unknown",
     distance_yards: Optional[float] = None,
+    scores: Optional[Dict] = None,
+    trend_summary: Optional[str] = None,
+    pro_comparison: Optional[str] = None,
 ) -> Dict[str, str]:
     """Send swing metrics to OpenAI and return structured coaching feedback.
 
@@ -117,7 +120,14 @@ def analyze_swing(
 
     model = os.environ.get("OPENAI_COACH_MODEL", _DEFAULT_MODEL)
     system_prompt = build_system_prompt()
-    user_prompt = build_coaching_prompt(metrics, club=club, distance_yards=distance_yards)
+    user_prompt = build_coaching_prompt(
+        metrics,
+        club=club,
+        distance_yards=distance_yards,
+        scores=scores,
+        trend_summary=trend_summary,
+        pro_comparison=pro_comparison,
+    )
 
     logger.info(
         "coach_agent: calling OpenAI model=%s for club=%s distance=%s",

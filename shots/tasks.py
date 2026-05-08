@@ -61,10 +61,9 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
         except Exception:
             logger.debug('GPS extraction skipped for analysis %s', analysis_pk, exc_info=True)
 
-        # Ensure the output directory exists before ffmpeg tries to write there
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # Look up stored GPS coords so the map overlay can be fetched
+        # Look up stored GPS coords for map overlay
         coords = None
         try:
             sd = ShotDistance.objects.filter(
@@ -119,9 +118,7 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
         if getattr(sa, 'overlay_requested', False):
             _apply_pose_overlay(sa, output_path)
 
-        # AI Swing Coach: extract biomechanical metrics then request coaching feedback.
-        # This runs after overlay processing so the main video pipeline is unaffected
-        # if AI analysis fails.  All errors are caught and logged non-fatally.
+        # Full AI analysis pipeline: metrics → scores → snapshots → memory → coaching
         _run_ai_analysis(sa, input_path)
 
         # Persist hole_par if provided transiently
@@ -148,11 +145,7 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
 
 
 def _apply_pose_overlay(sa, output_path):
-    """Render a MediaPipe pose wireframe onto the processed video (in-place).
-
-    Mutates sa.overlay_status / sa.overlay_error_message and saves those fields.
-    Does NOT call sa.save() for the main status — that's the caller's job.
-    """
+    """Render a MediaPipe pose wireframe onto the processed video (in-place)."""
     from .video_processing import render_pose_wireframe
 
     sa.overlay_status = 'overlaying'
@@ -188,49 +181,152 @@ def _apply_pose_overlay(sa, output_path):
 
 
 def _run_ai_analysis(sa, video_path: str) -> None:
-    """Extract swing metrics and generate AI coaching feedback for a ShotAnalysis.
+    """Run the full AI coaching pipeline for a ShotAnalysis.
 
-    Runs after the main video processing pipeline.  All failures are logged
-    and swallowed — a coaching API outage must never cause the shot record to
-    be marked as failed.
+    Pipeline order:
+        1. Metrics extraction (MediaPipe pose detection)
+        2. Swing scoring (0-100 per dimension)
+        3. Frame snapshots (setup / top / impact / finish)
+        4. Shot shape detection (stored in metrics)
+        5. Pro comparison
+        6. Swing memory update + trend summary
+        7. Coaching prompt + OpenAI feedback generation
+        8. Persist all results
 
-    Args:
-        sa:         ShotAnalysis instance (already saved with processed_video).
-        video_path: Path to the video file to run pose detection on (input video).
+    All failures are logged and swallowed — a coaching error must never cause
+    the shot record to be marked as failed.
     """
+    # ------------------------------------------------------------------
+    # 1. Metrics extraction
+    # ------------------------------------------------------------------
     try:
         from .ai.metrics_engine import extract_swing_metrics
-        from .ai.coach_agent import analyze_swing
     except ImportError as exc:
-        logger.warning('AI coaching modules not available: %s', exc)
+        logger.warning('AI metrics module not available: %s', exc)
         return
 
-    # --- Metrics extraction ---
     try:
         metrics = extract_swing_metrics(video_path)
     except Exception:
         logger.exception('AI metrics extraction failed for analysis %s', sa.pk)
         return
 
-    # Store raw metrics JSON for inspection / future re-analysis
     try:
         sa.ai_metrics_json = json.dumps(metrics)
         sa.save(update_fields=['ai_metrics_json', 'updated_at'])
     except Exception:
         logger.warning('Could not save ai_metrics_json for analysis %s', sa.pk, exc_info=True)
 
-    # --- AI coaching call ---
+    if metrics.get('frame_count', 0) == 0:
+        logger.warning('No pose frames detected for analysis %s — skipping AI pipeline', sa.pk)
+        return
+
+    # ------------------------------------------------------------------
+    # 2. Swing scoring
+    # ------------------------------------------------------------------
+    scores = {}
+    try:
+        from .ai.scoring_engine import compute_scores
+        scores = compute_scores(metrics)
+        update_fields = []
+        field_map = {
+            'overall_score': 'ai_overall_score',
+            'tempo_score': 'ai_tempo_score',
+            'balance_score': 'ai_balance_score',
+            'rotation_score': 'ai_rotation_score',
+            'posture_score': 'ai_posture_score',
+            'sequencing_score': 'ai_sequencing_score',
+            'consistency_score': 'ai_consistency_score',
+        }
+        for score_key, field_name in field_map.items():
+            val = scores.get(score_key)
+            if val is not None:
+                setattr(sa, field_name, val)
+                update_fields.append(field_name)
+        if update_fields:
+            update_fields.append('updated_at')
+            sa.save(update_fields=update_fields)
+        logger.info('Scores saved for analysis %s: overall=%s', sa.pk, scores.get('overall_score'))
+    except Exception:
+        logger.exception('Scoring engine failed for analysis %s', sa.pk)
+
+    # ------------------------------------------------------------------
+    # 3. Shot shape (already in metrics from metrics_engine)
+    # ------------------------------------------------------------------
+    try:
+        shot_shape = metrics.get('shot_shape', 'unknown')
+        sa.ai_shot_shape = shot_shape
+        sa.save(update_fields=['ai_shot_shape', 'updated_at'])
+    except Exception:
+        logger.warning('Could not save shot shape for analysis %s', sa.pk, exc_info=True)
+
+    # ------------------------------------------------------------------
+    # 4. Frame snapshots
+    # ------------------------------------------------------------------
+    try:
+        from .ai.snapshot_extractor import extract_snapshots
+        snapshots = extract_snapshots(video_path, sa.pk)
+        if snapshots:
+            sa.ai_snapshots_json = json.dumps(snapshots)
+            sa.save(update_fields=['ai_snapshots_json', 'updated_at'])
+            logger.info('Snapshots saved for analysis %s: %s', sa.pk, list(snapshots.keys()))
+    except Exception:
+        logger.exception('Snapshot extraction failed for analysis %s', sa.pk)
+
+    # ------------------------------------------------------------------
+    # 5. Pro comparison
+    # ------------------------------------------------------------------
+    pro_comparison_text = ''
+    try:
+        from .ai.pro_comparisons import get_pro_comparison
+        comparison = get_pro_comparison(metrics)
+        pro_comparison_text = comparison.get('description', '')
+        if pro_comparison_text:
+            sa.ai_pro_comparison = pro_comparison_text
+            sa.save(update_fields=['ai_pro_comparison', 'updated_at'])
+    except Exception:
+        logger.exception('Pro comparison failed for analysis %s', sa.pk)
+
+    # ------------------------------------------------------------------
+    # 6. Swing memory: update tendencies + generate trend summary
+    # ------------------------------------------------------------------
+    trend_summary = ''
+    try:
+        from .ai.swing_memory import update_swing_memory, generate_trend_summary
+        update_swing_memory(sa.user_id, sa.pk, metrics)
+        trend_summary = generate_trend_summary(sa.user_id, metrics)
+        if trend_summary:
+            sa.ai_trend_summary = trend_summary
+            sa.save(update_fields=['ai_trend_summary', 'updated_at'])
+    except Exception:
+        logger.exception('Swing memory update failed for analysis %s', sa.pk)
+
+    # ------------------------------------------------------------------
+    # 7. AI coaching call (OpenAI)
+    # ------------------------------------------------------------------
+    try:
+        from .ai.coach_agent import analyze_swing
+        from .ai.prompt_builder import build_coaching_prompt, build_system_prompt
+    except ImportError as exc:
+        logger.warning('AI coaching modules not available: %s', exc)
+        return
+
     try:
         feedback = analyze_swing(
             metrics,
             club=sa.club or 'unknown',
             distance_yards=sa.distance,
+            scores=scores,
+            trend_summary=trend_summary,
+            pro_comparison=pro_comparison_text,
         )
     except Exception:
         logger.exception('AI coaching call failed for analysis %s', sa.pk)
         return
 
-    # --- Persist coaching feedback ---
+    # ------------------------------------------------------------------
+    # 8. Persist coaching feedback
+    # ------------------------------------------------------------------
     try:
         sa.ai_main_fault = feedback.get('main_fault', '')
         sa.ai_strength = feedback.get('strength', '')

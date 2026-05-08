@@ -5,6 +5,22 @@
 
 export DJANGO_DEBUG=1
 
+# Load environment variables from .zshrc if OPENAI_API_KEY isn't already set
+if [ -z "$OPENAI_API_KEY" ] && [ -f "$HOME/.zshrc" ]; then
+    # Extract and export OPENAI_API_KEY from .zshrc without running interactive shell
+    _key=$(grep -E '^\s*export OPENAI_API_KEY=' "$HOME/.zshrc" | tail -1 | sed 's/.*OPENAI_API_KEY=//' | tr -d '"'"'" | cut -d' ' -f1)
+    if [ -n "$_key" ]; then
+        export OPENAI_API_KEY="$_key"
+    fi
+fi
+
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo "WARNING: OPENAI_API_KEY is not set — AI Swing Coach will not work."
+    echo "         Add 'export OPENAI_API_KEY=sk-...' to your ~/.zshrc"
+else
+    echo "OPENAI_API_KEY loaded (${#OPENAI_API_KEY} chars)"
+fi
+
 cd "$(dirname "$0")"
 
 # Make sure the output directory exists

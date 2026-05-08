@@ -12,6 +12,7 @@ urlpatterns = [
     path('analyze/', views.analyze_upload, name='analyze_upload'),
     path('analyze/<int:pk>/', views.analysis_detail, name='analysis_detail'),
     path('analyze/<int:pk>/reprocess/', views.reprocess_overlays, name='reprocess_overlays'),
+    path('analyze/<int:pk>/chat/', views.ai_coach_chat, name='ai_coach_chat'),
     path('analysis/<int:pk>/overlay-status/', views.overlay_status, name='overlay_status'),
     path('upload-shot/', views.upload_shot, name='upload_shot'),
     path('shots/<int:pk>/delete/', views.delete_shot, name='delete_shot'),
