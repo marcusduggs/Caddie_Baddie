@@ -666,8 +666,13 @@ def analyze_upload(request):
                     try:
                         base_name = os.path.splitext(os.path.basename(a_saved.input_video.name))[0]
                         output_filename = f"{base_name}_processed.mp4"
-                        output_path = os.path.join(settings.MEDIA_ROOT, 'output', output_filename)
-                        async_task('shots.tasks.process_video_background', a_saved.pk, a_saved.input_video.path, output_path, None)
+                        _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else __import__('tempfile').gettempdir()
+                        output_path = os.path.join(_out_root, 'output', output_filename)
+                        try:
+                            _input_path = a_saved.input_video.path
+                        except (NotImplementedError, ValueError):
+                            _input_path = a_saved.input_video.url
+                        async_task('shots.tasks.process_video_background', a_saved.pk, _input_path, output_path, None)
                     except Exception:
                         logger.exception('Failed to start background processing for analysis %s', getattr(a_saved, 'pk', None))
 
@@ -1001,13 +1006,21 @@ def reprocess_overlays(request, pk):
 
     # Enqueue background reprocessing via Django-Q
     try:
-        input_path = sa.input_video.path if sa.input_video else None
+        if sa.input_video:
+            try:
+                input_path = sa.input_video.path
+            except (NotImplementedError, ValueError):
+                input_path = sa.input_video.url
+        else:
+            input_path = None
+        import tempfile as _tempfile
+        _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
         if input_path:
             async_task(
                 'shots.tasks.process_video_background',
                 sa.pk,
                 input_path,
-                os.path.join(settings.MEDIA_ROOT, 'output', f"reprocess_{sa.pk}.mp4"),
+                os.path.join(_out_root, 'output', f"reprocess_{sa.pk}.mp4"),
                 None,
             )
         else:
