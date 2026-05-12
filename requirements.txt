@@ -14,7 +14,7 @@ fonttools==4.61.1
 idna==3.11
 kiwisolver==1.4.9
 matplotlib==3.10.8
-mediapipe==0.10.9
+mediapipe==0.10.35
 numpy==2.2.6
 openai>=1.30.0
 opencv-contrib-python==4.13.0.90
