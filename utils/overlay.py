@@ -350,13 +350,13 @@ def process_video_with_overlay(input_path: str, output_path: str, *args, **kwarg
     needs_text = include_course_text and FFMPEG_HAS_DRAWTEXT
 
     try:
-        # Fast path: stream copy only when no visual changes are needed
+        # Always re-encode to H.264 for browser compatibility (stream copy preserves
+        # HEVC from iPhone which Chrome/Firefox can't play)
         if not needs_map and not needs_text:
-            cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c', 'copy', output_path]
+            cmd = [FFMPEG_PATH, '-y', '-i', input_path, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy', output_path]
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if p.returncode == 0:
                 return output_path
-            # stream copy failed (e.g. container mismatch) — fall through to re-encode
 
         # Fetch Mapbox static image when map overlay is requested and we have coords
         map_path = None
