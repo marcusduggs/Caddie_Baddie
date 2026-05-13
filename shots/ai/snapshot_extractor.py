@@ -27,8 +27,10 @@ except Exception:
 
 try:
     import mediapipe as mp
+    from mediapipe.python.solutions import pose as _mp_pose_solutions
 except Exception:
     mp = None
+    _mp_pose_solutions = None
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +139,8 @@ def extract_snapshots(video_path: str, analysis_pk: int) -> Dict[str, str]:
     # First pass: collect wrist positions (no frame storage — saves memory)
     wrist_positions: List[Optional[tuple]] = []
 
-    if mp is not None:
-        mp_pose = mp.solutions.pose
+    if mp is not None and _mp_pose_solutions is not None:
+        mp_pose = _mp_pose_solutions
         frame_idx = 0
         last_wrist: Optional[tuple] = None
         try:

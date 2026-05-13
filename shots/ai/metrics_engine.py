@@ -33,8 +33,10 @@ except Exception:
 
 try:
     import mediapipe as mp
+    from mediapipe.python.solutions import pose as _mp_pose_solutions
 except Exception:
     mp = None
+    _mp_pose_solutions = None
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     Frames where pose detection fails are excluded.
     Returns [] if mediapipe/opencv are unavailable.
     """
-    if mp is None or cv2 is None:
+    if mp is None or cv2 is None or _mp_pose_solutions is None:
         logger.warning("metrics_engine: mediapipe or opencv not available")
         return []
 
@@ -114,7 +116,7 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     # Biomechanical ratios (tempo, sequencing, etc.) are insensitive to 2x sampling.
     FRAME_STEP = 2
 
-    mp_pose = mp.solutions.pose
+    mp_pose = _mp_pose_solutions
     all_frames: List[List[Dict]] = []
     last_lms: Optional[List[Dict]] = None
     frame_idx = 0

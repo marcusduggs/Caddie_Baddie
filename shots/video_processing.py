@@ -14,8 +14,12 @@ except Exception:
 
 try:
     import mediapipe as mp
+    from mediapipe.python.solutions import pose as _mp_pose_solutions
+    from mediapipe.python.solutions import drawing_utils as _mp_drawing_solutions
 except Exception:
     mp = None
+    _mp_pose_solutions = None
+    _mp_drawing_solutions = None
 
 
 def _angle_between(a: Tuple[float, float], b: Tuple[float, float]) -> float:
@@ -51,7 +55,7 @@ def render_pose_wireframe(input_path: str,
 
     Raises RuntimeError if mediapipe/opencv are not installed or video cannot be opened.
     """
-    if mp is None or cv2 is None:
+    if mp is None or cv2 is None or _mp_pose_solutions is None:
         raise RuntimeError('mediapipe and opencv-python are required for pose overlay')
 
     if not os.path.exists(input_path):
@@ -103,8 +107,8 @@ def render_pose_wireframe(input_path: str,
         use_ffmpeg_seq = True
         tmp_dir = tempfile.mkdtemp(prefix='pose_frames_')
 
-    mp_pose = mp.solutions.pose
-    mp_drawing = mp.solutions.drawing_utils
+    mp_pose = _mp_pose_solutions
+    mp_drawing = _mp_drawing_solutions
 
     # state for smoothing and trails
     smoothed_landmarks: Optional[List[Dict[str, float]]] = None
