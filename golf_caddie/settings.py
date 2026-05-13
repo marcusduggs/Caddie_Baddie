@@ -14,6 +14,9 @@ DEBUG = os.environ.get('DJANGO_DEBUG', '0') in ('1', 'True', 'true')
 _allowed_hosts_env = os.environ.get('ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = _allowed_hosts_env.split(',') if _allowed_hosts_env else (['localhost', '127.0.0.1'] if DEBUG else [])
 
+_csrf_origins_env = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+CSRF_TRUSTED_ORIGINS = _csrf_origins_env.split(',') if _csrf_origins_env else (['http://localhost', 'http://127.0.0.1'] if DEBUG else [])
+
 # Security hardening toggles (applied only when DEBUG is False)
 if not DEBUG:
     # Redirect all non-HTTPS requests to HTTPS
