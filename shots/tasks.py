@@ -242,8 +242,8 @@ def _run_ai_analysis(sa, video_path: str) -> None:
         logger.warning('Could not save ai_metrics_json for analysis %s', sa.pk, exc_info=True)
 
     if metrics.get('frame_count', 0) == 0:
-        logger.warning('No pose frames detected for analysis %s — skipping AI pipeline', sa.pk)
-        return
+        logger.warning('No pose frames detected for analysis %s — running AI feedback with empty metrics', sa.pk)
+        # Do NOT return here: coach_agent will produce a "no pose data" message for the user
 
     # ------------------------------------------------------------------
     # 2. Swing scoring

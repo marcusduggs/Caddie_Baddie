@@ -164,7 +164,13 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
         min_pose_presence_confidence=0.45,
         min_tracking_confidence=0.45,
     )
-    landmarker = _mp_tasks_vision.PoseLandmarker.create_from_options(options)
+    try:
+        landmarker = _mp_tasks_vision.PoseLandmarker.create_from_options(options)
+    except OSError as exc:
+        cap.release()
+        print(f'metrics_engine: mediapipe C library failed to load ({exc}); pose extraction disabled', flush=True)
+        return []
+
     try:
         while True:
             ret, frame = cap.read()
