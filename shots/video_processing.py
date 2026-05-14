@@ -149,11 +149,14 @@ def render_pose_wireframe(input_path: str,
     )
     landmarker = _mp_tasks_vision.PoseLandmarker.create_from_options(options)
 
+    print(f'[POSE] Video dimensions: {w}x{h} @ {fps:.1f}fps', flush=True)
+
     # state for smoothing and trails
     smoothed_landmarks: Optional[List[Dict[str, float]]] = None
     wrist_history: List[Dict[str, Tuple[float, float]]] = []
     frame_index = 0
     wrist_speeds: List[float] = []
+    _diag_logged = False
 
     try:
      while True:
@@ -189,6 +192,19 @@ def render_pose_wireframe(input_path: str,
                 def pix(i):
                     lm = landmarks[i]
                     return int(lm['x'] * w), int(lm['y'] * h)
+
+                if not _diag_logged:
+                    _diag_logged = True
+                    try:
+                        ls_px = pix(11); rs_px = pix(12)
+                        lh_px = pix(23); rh_px = pix(24)
+                        print(f'[POSE] Frame {frame_index}: first detection. '
+                              f'L-shoulder={ls_px} R-shoulder={rs_px} '
+                              f'L-hip={lh_px} R-hip={rh_px} '
+                              f'(norm: ls=({landmarks[11]["x"]:.3f},{landmarks[11]["y"]:.3f}) '
+                              f'rs=({landmarks[12]["x"]:.3f},{landmarks[12]["y"]:.3f}))', flush=True)
+                    except Exception as _e:
+                        print(f'[POSE] Frame {frame_index}: detection but coord log failed: {_e}', flush=True)
 
                 # compute shoulder and hip rotation angles (degrees)
                 try:
