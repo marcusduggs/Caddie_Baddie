@@ -34,7 +34,7 @@ except Exception as e:
 
 try:
     import mediapipe as mp
-    _mp_pose_solutions = mp.solutions.pose
+    from mediapipe.python.solutions import pose as _mp_pose_solutions
 except Exception as e:
     logger.warning('mediapipe import failed: %s', e)
     mp = None
