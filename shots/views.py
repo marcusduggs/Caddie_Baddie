@@ -653,6 +653,7 @@ def analyze_upload(request):
                     # ensure status is uploading so background worker picks it up
                     try:
                         a_saved.status = 'uploading'
+                        a_saved.overlay_requested = overlay_requested
                         # Persist metadata (course_name/hole_number/stroke_number/status) so list/map views see the shot immediately
                         try:
                             a_saved.save()
