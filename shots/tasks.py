@@ -9,12 +9,20 @@ Task results and status are visible in the Django admin under Django-Q > Success
 
 import json
 import os
+import sys
 import logging
 import tempfile
 
 from django.core.files import File
 
 logger = logging.getLogger(__name__)
+
+# Force line-buffered stdout so print() output appears immediately in Render logs
+# (worker subprocesses default to block-buffered when stdout is a pipe)
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 
 def process_video_background(analysis_pk, input_path, output_path, hole_par=None):
@@ -184,29 +192,29 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
     sa.overlay_status = 'overlaying'
     sa.save(update_fields=['overlay_status', 'updated_at'])
 
-    print(f'[WIREFRAME] Starting pose overlay for analysis {sa.pk}, input={input_path}, final_output={final_output_path}')
+    print(f'[WIREFRAME] Starting pose overlay for analysis {sa.pk}, input={input_path}, final_output={final_output_path}', flush=True)
 
     fd, wireframe_tmp = tempfile.mkstemp(suffix='.mp4')
     os.close(fd)
     try:
         # Step 1: draw skeleton on the unobstructed original video
-        print(f'[WIREFRAME] Calling render_pose_wireframe for analysis {sa.pk}')
+        print(f'[WIREFRAME] Calling render_pose_wireframe for analysis {sa.pk}', flush=True)
         overlay_path = render_pose_wireframe(input_path, output_path=wireframe_tmp)
-        print(f'[WIREFRAME] render_pose_wireframe returned: {overlay_path}')
+        print(f'[WIREFRAME] render_pose_wireframe returned: {overlay_path}', flush=True)
 
         if overlay_path is None:
             sa.overlay_status = 'skipped'
             sa.overlay_error_message = 'Pose overlay not available on this system (mediapipe/opencv missing).'
-            print(f'[WIREFRAME] Skipped for analysis {sa.pk} — mediapipe/opencv missing')
+            print(f'[WIREFRAME] Skipped for analysis {sa.pk} — mediapipe/opencv missing', flush=True)
             return
 
         wf_size = os.path.getsize(overlay_path) if os.path.exists(overlay_path) else 0
-        print(f'[WIREFRAME] Wireframe file size for analysis {sa.pk}: {wf_size} bytes')
+        print(f'[WIREFRAME] Wireframe file size for analysis {sa.pk}: {wf_size} bytes', flush=True)
 
         if wf_size == 0:
             sa.overlay_status = 'failed'
             sa.overlay_error_message = 'Wireframe renderer produced no output.'
-            print(f'[WIREFRAME] Failed — wireframe file is empty for analysis {sa.pk}')
+            print(f'[WIREFRAME] Failed — wireframe file is empty for analysis {sa.pk}', flush=True)
             return
 
         # Step 2: layer GPS map + course text on top of the wireframe video.
@@ -222,8 +230,8 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
         except Exception:
             pass
 
-        print(f'[WIREFRAME] GPS coords for analysis {sa.pk}: {coords}')
-        print(f'[WIREFRAME] include_map={getattr(sa, "include_map", False)}, include_course_text={getattr(sa, "include_course_text", False)}')
+        print(f'[WIREFRAME] GPS coords for analysis {sa.pk}: {coords}', flush=True)
+        print(f'[WIREFRAME] include_map={getattr(sa, "include_map", False)}, include_course_text={getattr(sa, "include_course_text", False)}', flush=True)
 
         dest = final_output_path or wireframe_tmp
         try:
@@ -239,25 +247,26 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
                 include_course_text=getattr(sa, 'include_course_text', False),
             )
             dest_size = os.path.getsize(dest) if os.path.exists(dest) else 0
-            print(f'[WIREFRAME] process_video_with_overlay result={result}, dest_size={dest_size} for analysis {sa.pk}')
+            print(f'[WIREFRAME] process_video_with_overlay result={result}, dest_size={dest_size} for analysis {sa.pk}', flush=True)
             if not result or not os.path.exists(dest) or dest_size == 0:
-                print(f'[WIREFRAME] GPS/text re-overlay returned None/empty for {sa.pk}; saving wireframe-only')
+                print(f'[WIREFRAME] GPS/text re-overlay returned None/empty for {sa.pk}; saving wireframe-only', flush=True)
                 dest = overlay_path
         except Exception as exc:
-            print(f'[WIREFRAME] GPS/text re-overlay raised exception for {sa.pk}: {exc}; saving wireframe-only')
+            print(f'[WIREFRAME] GPS/text re-overlay raised exception for {sa.pk}: {exc}; saving wireframe-only', flush=True)
             logger.exception('GPS/text re-overlay on wireframe failed for %s', sa.pk)
             dest = overlay_path  # fall back to wireframe without map/text
 
         save_name = os.path.basename(final_output_path or input_path)
         final_size = os.path.getsize(dest) if os.path.exists(dest) else 0
-        print(f'[WIREFRAME] Saving to S3 as {save_name}, reading from {dest} ({final_size} bytes) for analysis {sa.pk}')
+        print(f'[WIREFRAME] Saving to S3 as {save_name}, reading from {dest} ({final_size} bytes) for analysis {sa.pk}', flush=True)
         with open(dest, 'rb') as ofp:
             sa.processed_video.save(save_name, File(ofp), save=True)
-        print(f'[WIREFRAME] S3 upload complete for analysis {sa.pk}, processed_video.name={sa.processed_video.name}')
+        print(f'[WIREFRAME] S3 upload complete for analysis {sa.pk}, processed_video.name={sa.processed_video.name}', flush=True)
         sa.overlay_status = 'completed'
-        sa.overlay_error_message = ''
+        # Temporary diagnostic — records file sizes so they're visible in admin / overlay_status API
+        sa.overlay_error_message = f'diag: wf={wf_size}b final={final_size}b s3key={sa.processed_video.name}'
     except Exception as e:
-        print(f'[WIREFRAME] Unexpected exception in pose overlay for analysis {sa.pk}: {e}')
+        print(f'[WIREFRAME] Unexpected exception in pose overlay for analysis {sa.pk}: {e}', flush=True)
         logger.exception('Pose overlay failed for analysis %s', sa.pk)
         sa.overlay_status = 'failed'
         sa.overlay_error_message = str(e)
@@ -268,7 +277,7 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
         except Exception:
             pass
         sa.save(update_fields=['overlay_status', 'overlay_error_message', 'updated_at'])
-        print(f'[WIREFRAME] Done for analysis {sa.pk}, overlay_status={sa.overlay_status}')
+        print(f'[WIREFRAME] Done for analysis {sa.pk}, overlay_status={sa.overlay_status}', flush=True)
 
 
 def _run_ai_analysis(sa, video_path: str) -> None:
