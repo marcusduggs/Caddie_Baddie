@@ -503,7 +503,7 @@
             if (player) {
               player.innerHTML = '<h3 class="text-base font-semibold mb-3 text-gray-800">🎬 Processed Video</h3>' +
                 '<video controls playsinline preload="metadata" class="w-full rounded-xl shadow" id="processed-video">' +
-                '<source src="' + data.processed_video_url + '?t=' + Date.now() + '" type="video/mp4"></video>';
+                '<source src="' + data.processed_video_url + '" type="video/mp4"></video>';
             }
             var msg = document.getElementById('overlay-msg');
             if (msg) { msg.textContent = 'Done!'; msg.classList.remove('hidden'); }
