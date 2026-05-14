@@ -161,7 +161,10 @@ def _get_mediapipe_lib_path() -> str | None:
 def _get_required_symbols(lib_path: str | None) -> list[str]:
     """Return GL/EGL symbols needed by libmediapipe.so.
 
-    Uses `nm` for precision; falls back to the full predefined list.
+    Always returns the full predefined GLES2+3.0+3.1+EGL list. nm is run for
+    informational logging only — mediapipe may resolve some symbols at runtime
+    via eglGetProcAddress rather than as static ELF undefined symbols, so the
+    nm list is not complete enough to use exclusively.
     """
     if lib_path:
         try:
@@ -170,19 +173,15 @@ def _get_required_symbols(lib_path: str | None) -> list[str]:
                 capture_output=True, text=True, timeout=15,
             )
             if r.returncode == 0:
-                syms = []
-                for line in r.stdout.splitlines():
-                    parts = line.strip().split()
-                    if parts:
-                        s = parts[-1]
-                        if s.startswith('gl') or s.startswith('egl'):
-                            syms.append(s)
-                if syms:
-                    print(f'gl_utils: nm extracted {len(syms)} GL/EGL symbols from libmediapipe.so', flush=True)
-                    return syms
+                count = sum(
+                    1 for line in r.stdout.splitlines()
+                    if (parts := line.strip().split()) and
+                    (parts[-1].startswith('gl') or parts[-1].startswith('egl'))
+                )
+                if count:
+                    print(f'gl_utils: nm sees {count} GL/EGL symbols in libmediapipe.so (using full predefined list)', flush=True)
         except Exception:
             pass
-    # Comprehensive fallback: GLES 2.0 + 3.0 + 3.1 + EGL
     return _GLES2 + _GLES30 + _GLES31 + _EGL
 
 
