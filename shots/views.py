@@ -2019,12 +2019,25 @@ def hole_shot_map(request, hole):
         # immediately after upload when the video contains GPS metadata.
         if (lat is None or lng is None):
             try:
-                if getattr(analysis, 'input_video', None) and getattr(analysis.input_video, 'path', None):
+                if getattr(analysis, 'input_video', None):
                     _coords = None
+                    # Try local path first; fall back to URL (S3-backed files raise
+                    # NotImplementedError on .path but ffprobe can fetch from HTTPS).
+                    _video_src = None
                     try:
-                        _coords = utils.extract_coords_from_video(analysis.input_video.path)
+                        _video_src = analysis.input_video.path
                     except Exception:
-                        _coords = None
+                        pass
+                    if not _video_src:
+                        try:
+                            _video_src = analysis.input_video.url
+                        except Exception:
+                            pass
+                    if _video_src:
+                        try:
+                            _coords = utils.extract_coords_from_video(_video_src)
+                        except Exception:
+                            _coords = None
                     if _coords:
                         try:
                             lon_ex, lat_ex = _coords
