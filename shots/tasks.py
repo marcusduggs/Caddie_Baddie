@@ -213,9 +213,12 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
         except Exception:
             pass
 
+        wireframe_size = os.path.getsize(overlay_path) if os.path.exists(overlay_path) else 0
+        logger.info('Wireframe video size for analysis %s: %d bytes', sa.pk, wireframe_size)
+
         dest = final_output_path or wireframe_tmp
         try:
-            process_video_with_overlay(
+            result = process_video_with_overlay(
                 overlay_path,
                 dest,
                 coords,
@@ -226,6 +229,11 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
                 overlay_map_requested=getattr(sa, 'include_map', False),
                 include_course_text=getattr(sa, 'include_course_text', False),
             )
+            dest_size = os.path.getsize(dest) if os.path.exists(dest) else 0
+            logger.info('GPS/text re-overlay result=%s dest_size=%d for analysis %s', result, dest_size, sa.pk)
+            if not result or not os.path.exists(dest) or dest_size == 0:
+                logger.warning('GPS/text re-overlay returned None/empty for %s; saving wireframe-only', sa.pk)
+                dest = overlay_path
         except Exception:
             logger.warning('GPS/text re-overlay on wireframe failed for %s; saving wireframe-only', sa.pk, exc_info=True)
             dest = overlay_path  # fall back to wireframe without map/text
