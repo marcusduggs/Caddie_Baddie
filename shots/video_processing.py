@@ -57,8 +57,8 @@ def render_pose_wireframe(input_path: str,
                           output_path: Optional[str] = None,
                           smoothing: float = 0.7,
                           wrist_trail_len: int = 8,
-                          detection_confidence: float = 0.5,
-                          tracking_confidence: float = 0.5) -> str:
+                          detection_confidence: float = 0.3,
+                          tracking_confidence: float = 0.3) -> str:
     """Run MediaPipe Pose on input_path and write an output video with a skeleton overlay.
 
     The overlay is drawn semi-transparently on top of each frame. The function returns
@@ -230,27 +230,28 @@ def render_pose_wireframe(input_path: str,
                         pass
 
                 # arms
-                draw_segment(11, 13, (200, 80, 80), 3)
-                draw_segment(13, 15, (200, 80, 80), 3)
-                draw_segment(12, 14, (200, 80, 80), 3)
-                draw_segment(14, 16, (200, 80, 80), 3)
+                draw_segment(11, 13, (80, 80, 255), 5)
+                draw_segment(13, 15, (80, 80, 255), 5)
+                draw_segment(12, 14, (80, 80, 255), 5)
+                draw_segment(14, 16, (80, 80, 255), 5)
                 # shoulders and torso
-                draw_segment(11, 12, (0, 140, 255), 5)
-                draw_segment(11, 23, (0, 200, 200), 3)
-                draw_segment(12, 24, (0, 200, 200), 3)
-                draw_segment(23, 24, (180, 200, 255), 5)
+                draw_segment(11, 12, (0, 200, 255), 7)
+                draw_segment(11, 23, (0, 255, 200), 5)
+                draw_segment(12, 24, (0, 255, 200), 5)
+                draw_segment(23, 24, (0, 200, 255), 7)
                 # legs
-                draw_segment(23, 25, (120, 200, 255), 3)
-                draw_segment(25, 27, (120, 200, 255), 3)
-                draw_segment(24, 26, (120, 200, 255), 3)
-                draw_segment(26, 28, (120, 200, 255), 3)
+                draw_segment(23, 25, (255, 180, 0), 5)
+                draw_segment(25, 27, (255, 180, 0), 5)
+                draw_segment(24, 26, (255, 180, 0), 5)
+                draw_segment(26, 28, (255, 180, 0), 5)
 
                 # draw joints
                 key_joints = [11,12,13,14,15,16,23,24,25,26]
                 for idx in key_joints:
                     try:
                         x, y = pix(idx)
-                        cv2.circle(overlay, (x, y), 4, (255,255,255), -1, lineType=cv2.LINE_AA)
+                        cv2.circle(overlay, (x, y), 8, (255, 255, 255), -1, lineType=cv2.LINE_AA)
+                        cv2.circle(overlay, (x, y), 8, (0, 0, 0), 2, lineType=cv2.LINE_AA)
                     except Exception:
                         pass
 
@@ -270,7 +271,7 @@ def render_pose_wireframe(input_path: str,
 
         # Blend overlay onto frame with alpha transparency so underlying video remains visible
         try:
-            alpha = 0.7  # overlay opacity
+            alpha = 0.85  # overlay opacity — higher value keeps skeleton clearly visible
             cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         except Exception:
             frame = overlay
