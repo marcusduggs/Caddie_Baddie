@@ -132,7 +132,10 @@ def render_pose_wireframe(input_path: str,
     if model_path is None:
         raise RuntimeError('Pose landmarker model could not be downloaded')
 
-    base_options = _mp_tasks_python.BaseOptions(model_asset_path=model_path)
+    base_options = _mp_tasks_python.BaseOptions(
+        model_asset_path=model_path,
+        delegate=_mp_tasks_python.BaseOptions.Delegate.CPU,
+    )
     options = _mp_tasks_vision.PoseLandmarkerOptions(
         base_options=base_options,
         running_mode=_mp_tasks_vision.RunningMode.VIDEO,

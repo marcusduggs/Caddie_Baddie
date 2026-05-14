@@ -152,7 +152,10 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     last_lms: Optional[List[Dict]] = None
     frame_idx = 0
 
-    base_options = _mp_tasks_python.BaseOptions(model_asset_path=model_path)
+    base_options = _mp_tasks_python.BaseOptions(
+        model_asset_path=model_path,
+        delegate=_mp_tasks_python.BaseOptions.Delegate.CPU,
+    )
     options = _mp_tasks_vision.PoseLandmarkerOptions(
         base_options=base_options,
         running_mode=_mp_tasks_vision.RunningMode.VIDEO,
