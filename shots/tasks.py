@@ -132,9 +132,10 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
             sa.save(update_fields=['status', 'error_message', 'updated_at'])
             return
 
-        # Optional pose wireframe overlay
+        # Optional pose wireframe overlay — run on the original (unobstructed) video
+        # so the GPS map / text burn-in never covers the golfer and breaks pose detection.
         if getattr(sa, 'overlay_requested', False):
-            _apply_pose_overlay(sa, output_path)
+            _apply_pose_overlay(sa, input_path, final_output_path=output_path)
 
         # Full AI analysis pipeline: metrics → scores → snapshots → memory → coaching
         _run_ai_analysis(sa, input_path)
@@ -168,37 +169,80 @@ def process_video_background(analysis_pk, input_path, output_path, hole_par=None
                 pass
 
 
-def _apply_pose_overlay(sa, output_path):
-    """Render a MediaPipe pose wireframe onto the processed video (in-place)."""
+def _apply_pose_overlay(sa, input_path, final_output_path=None):
+    """Render a MediaPipe pose wireframe on the original video, then re-apply
+    GPS/text overlays on top so the map never obscures the golfer during detection.
+
+    Pipeline:
+        original video  →  render_pose_wireframe  →  wireframe_tmp
+        wireframe_tmp   →  process_video_with_overlay (map+text)  →  final_output_path
+        final_output_path  →  saved as sa.processed_video
+    """
     from .video_processing import render_pose_wireframe
+    from utils.overlay import process_video_with_overlay
 
     sa.overlay_status = 'overlaying'
     sa.save(update_fields=['overlay_status', 'updated_at'])
 
-    fd, overlay_tmp = tempfile.mkstemp(suffix='.mp4')
+    fd, wireframe_tmp = tempfile.mkstemp(suffix='.mp4')
     os.close(fd)
     try:
-        overlay_path = render_pose_wireframe(output_path, output_path=overlay_tmp)
+        # Step 1: draw skeleton on the unobstructed original video
+        overlay_path = render_pose_wireframe(input_path, output_path=wireframe_tmp)
 
         if overlay_path is None:
             sa.overlay_status = 'skipped'
             sa.overlay_error_message = 'Pose overlay not available on this system (mediapipe/opencv missing).'
-        elif os.path.exists(overlay_path) and os.path.getsize(overlay_path) > 0:
-            with open(overlay_path, 'rb') as ofp:
-                sa.processed_video.save(os.path.basename(output_path), File(ofp), save=True)
-            sa.overlay_status = 'completed'
-            sa.overlay_error_message = ''
-        else:
+            return
+
+        if not (os.path.exists(overlay_path) and os.path.getsize(overlay_path) > 0):
             sa.overlay_status = 'failed'
-            sa.overlay_error_message = 'Overlay renderer produced no output.'
+            sa.overlay_error_message = 'Wireframe renderer produced no output.'
+            return
+
+        # Step 2: layer GPS map + course text on top of the wireframe video.
+        # Re-fetch stored coordinates so the map is still rendered correctly.
+        coords = None
+        try:
+            from .models import ShotDistance
+            sd = ShotDistance.objects.filter(
+                shot=sa, origin_lat__isnull=False, origin_lng__isnull=False
+            ).order_by('created_at').first()
+            if sd:
+                coords = (sd.origin_lng, sd.origin_lat)
+        except Exception:
+            pass
+
+        dest = final_output_path or wireframe_tmp
+        try:
+            process_video_with_overlay(
+                overlay_path,
+                dest,
+                coords,
+                sa.course_name,
+                sa.hole_number,
+                sa.hole_yardage,
+                sa.club,
+                overlay_map_requested=getattr(sa, 'include_map', False),
+                include_course_text=getattr(sa, 'include_course_text', False),
+            )
+        except Exception:
+            logger.warning('GPS/text re-overlay on wireframe failed for %s; saving wireframe-only', sa.pk, exc_info=True)
+            dest = overlay_path  # fall back to wireframe without map/text
+
+        save_name = os.path.basename(final_output_path or input_path)
+        with open(dest, 'rb') as ofp:
+            sa.processed_video.save(save_name, File(ofp), save=True)
+        sa.overlay_status = 'completed'
+        sa.overlay_error_message = ''
     except Exception as e:
         logger.exception('Pose overlay failed for analysis %s', sa.pk)
         sa.overlay_status = 'failed'
         sa.overlay_error_message = str(e)
     finally:
         try:
-            if os.path.exists(overlay_tmp):
-                os.remove(overlay_tmp)
+            if os.path.exists(wireframe_tmp):
+                os.remove(wireframe_tmp)
         except Exception:
             pass
         sa.save(update_fields=['overlay_status', 'overlay_error_message', 'updated_at'])
