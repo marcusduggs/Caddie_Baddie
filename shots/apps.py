@@ -9,8 +9,14 @@ class ShotsConfig(AppConfig):
     name = 'shots'
 
     def ready(self):
+        import ctypes
         try:
-            from shots.ai.gl_utils import ensure_gl_stubs
-            ensure_gl_stubs()
-        except Exception as exc:
-            logger.warning('gl_stubs: app startup hook failed: %s', exc)
+            ctypes.CDLL('libGLESv2.so.2')
+            print('[startup] libGLESv2.so.2: already available on system', flush=True)
+        except OSError:
+            print('[startup] libGLESv2.so.2: not found — running ensure_gl_stubs()', flush=True)
+            try:
+                from shots.ai.gl_utils import ensure_gl_stubs
+                ensure_gl_stubs()
+            except Exception as exc:
+                print(f'[startup] gl_stubs failed: {exc}', flush=True)
