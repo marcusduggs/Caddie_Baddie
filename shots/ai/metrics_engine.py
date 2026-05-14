@@ -26,6 +26,14 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+import urllib.request
+
+_POSE_MODEL_URL = (
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/'
+    'pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
+)
+_POSE_MODEL_PATH = '/tmp/pose_landmarker_lite.task'
+
 try:
     import cv2
 except Exception as e:
@@ -33,12 +41,31 @@ except Exception as e:
     cv2 = None
 
 try:
-    import mediapipe as mp
-    from mediapipe.python.solutions import pose as _mp_pose_solutions
+    from mediapipe.tasks import python as _mp_tasks_python
+    from mediapipe.tasks.python import vision as _mp_tasks_vision
+    from mediapipe import Image as _MpImage, ImageFormat as _MpImageFormat
+    _mediapipe_available = True
 except Exception as e:
     print(f'metrics_engine: mediapipe import failed: {e}', flush=True)
-    mp = None
-    _mp_pose_solutions = None
+    _mediapipe_available = False
+    _mp_tasks_python = None
+    _mp_tasks_vision = None
+    _MpImage = None
+    _MpImageFormat = None
+
+
+def _ensure_pose_model() -> Optional[str]:
+    """Download the pose landmarker model file if not already cached."""
+    if os.path.exists(_POSE_MODEL_PATH):
+        return _POSE_MODEL_PATH
+    try:
+        print(f'metrics_engine: downloading pose model...', flush=True)
+        urllib.request.urlretrieve(_POSE_MODEL_URL, _POSE_MODEL_PATH)
+        print(f'metrics_engine: pose model ready', flush=True)
+        return _POSE_MODEL_PATH
+    except Exception as e:
+        print(f'metrics_engine: pose model download failed: {e}', flush=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +128,13 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     Frames where pose detection fails are excluded.
     Returns [] if mediapipe/opencv are unavailable.
     """
-    if mp is None or cv2 is None or _mp_pose_solutions is None:
-        logger.warning(
-            "metrics_engine: mediapipe or opencv not available (cv2=%s, mp=%s, pose=%s)",
-            cv2, mp, _mp_pose_solutions,
-        )
+    if not _mediapipe_available or cv2 is None:
+        logger.warning("metrics_engine: mediapipe or opencv not available")
+        return []
+
+    model_path = _ensure_pose_model()
+    if model_path is None:
+        logger.warning("metrics_engine: pose model unavailable")
         return []
 
     if not os.path.exists(video_path):
@@ -117,45 +146,51 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
         logger.error("metrics_engine: cannot open video: %s", video_path)
         return []
 
-    # Process every Nth frame; carry forward last landmarks for skipped frames.
-    # Biomechanical ratios (tempo, sequencing, etc.) are insensitive to 2x sampling.
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     FRAME_STEP = 2
-
-    mp_pose = _mp_pose_solutions
     all_frames: List[List[Dict]] = []
     last_lms: Optional[List[Dict]] = None
     frame_idx = 0
 
+    base_options = _mp_tasks_python.BaseOptions(model_asset_path=model_path)
+    options = _mp_tasks_vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=_mp_tasks_vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=0.45,
+        min_pose_presence_confidence=0.45,
+        min_tracking_confidence=0.45,
+    )
+    landmarker = _mp_tasks_vision.PoseLandmarker.create_from_options(options)
     try:
-        with mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=0,
-            smooth_landmarks=True,
-            min_detection_confidence=0.45,
-            min_tracking_confidence=0.45,
-        ) as pose:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                if frame_idx % FRAME_STEP == 0:
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = pose.process(rgb)
-                    if getattr(results, "pose_landmarks", None):
-                        last_lms = [
-                            {
-                                "x": lm.x,
-                                "y": lm.y,
-                                "z": lm.z,
-                                "visibility": getattr(lm, "visibility", 1.0),
-                            }
-                            for lm in results.pose_landmarks.landmark
-                        ]
-                if last_lms is not None:
-                    all_frames.append(last_lms)
-                frame_idx += 1
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_idx % FRAME_STEP == 0:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_image = _MpImage(image_format=_MpImageFormat.SRGB, data=rgb)
+                timestamp_ms = int(frame_idx * 1000.0 / fps)
+                result = landmarker.detect_for_video(mp_image, timestamp_ms)
+                if result.pose_landmarks:
+                    last_lms = [
+                        {
+                            "x": lm.x,
+                            "y": lm.y,
+                            "z": lm.z,
+                            "visibility": getattr(lm, "visibility", 1.0),
+                        }
+                        for lm in result.pose_landmarks[0]
+                    ]
+            if last_lms is not None:
+                all_frames.append(last_lms)
+            frame_idx += 1
     finally:
         cap.release()
+        try:
+            landmarker.close()
+        except Exception:
+            pass
 
     logger.debug("metrics_engine: extracted landmarks from %d frames", len(all_frames))
     return all_frames

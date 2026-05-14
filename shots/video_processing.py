@@ -7,19 +7,40 @@ import subprocess
 import shutil
 from typing import Dict, List, Optional, Tuple
 
+import urllib.request
+
+_POSE_MODEL_URL = (
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/'
+    'pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
+)
+_POSE_MODEL_PATH = '/tmp/pose_landmarker_lite.task'
+
 try:
     import cv2
 except Exception:
     cv2 = None
 
 try:
-    import mediapipe as mp
-    from mediapipe.python.solutions import pose as _mp_pose_solutions
-    from mediapipe.python.solutions import drawing_utils as _mp_drawing_solutions
+    from mediapipe.tasks import python as _mp_tasks_python
+    from mediapipe.tasks.python import vision as _mp_tasks_vision
+    from mediapipe import Image as _MpImage, ImageFormat as _MpImageFormat
+    _mediapipe_available = True
 except Exception:
-    mp = None
-    _mp_pose_solutions = None
-    _mp_drawing_solutions = None
+    _mediapipe_available = False
+    _mp_tasks_python = None
+    _mp_tasks_vision = None
+    _MpImage = None
+    _MpImageFormat = None
+
+
+def _ensure_pose_model():
+    if os.path.exists(_POSE_MODEL_PATH):
+        return _POSE_MODEL_PATH
+    try:
+        urllib.request.urlretrieve(_POSE_MODEL_URL, _POSE_MODEL_PATH)
+        return _POSE_MODEL_PATH
+    except Exception:
+        return None
 
 
 def _angle_between(a: Tuple[float, float], b: Tuple[float, float]) -> float:
@@ -55,7 +76,7 @@ def render_pose_wireframe(input_path: str,
 
     Raises RuntimeError if mediapipe/opencv are not installed or video cannot be opened.
     """
-    if mp is None or cv2 is None or _mp_pose_solutions is None:
+    if not _mediapipe_available or cv2 is None:
         raise RuntimeError('mediapipe and opencv-python are required for pose overlay')
 
     if not os.path.exists(input_path):
@@ -107,34 +128,43 @@ def render_pose_wireframe(input_path: str,
         use_ffmpeg_seq = True
         tmp_dir = tempfile.mkdtemp(prefix='pose_frames_')
 
-    mp_pose = _mp_pose_solutions
-    mp_drawing = _mp_drawing_solutions
+    model_path = _ensure_pose_model()
+    if model_path is None:
+        raise RuntimeError('Pose landmarker model could not be downloaded')
+
+    base_options = _mp_tasks_python.BaseOptions(model_asset_path=model_path)
+    options = _mp_tasks_vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=_mp_tasks_vision.RunningMode.VIDEO,
+        num_poses=1,
+        min_pose_detection_confidence=detection_confidence,
+        min_pose_presence_confidence=detection_confidence,
+        min_tracking_confidence=tracking_confidence,
+    )
+    landmarker = _mp_tasks_vision.PoseLandmarker.create_from_options(options)
 
     # state for smoothing and trails
     smoothed_landmarks: Optional[List[Dict[str, float]]] = None
     wrist_history: List[Dict[str, Tuple[float, float]]] = []
     frame_index = 0
-    # store wrist speeds for rough phase detection
     wrist_speeds: List[float] = []
 
-    with mp_pose.Pose(static_image_mode=False,
-                      model_complexity=0,
-                      min_detection_confidence=detection_confidence,
-                      min_tracking_confidence=tracking_confidence) as pose:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = pose.process(rgb)
+    try:
+     while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = _MpImage(image_format=_MpImageFormat.SRGB, data=rgb)
+        timestamp_ms = int(frame_index * 1000.0 / fps)
+        results = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-            overlay = frame.copy()
+        overlay = frame.copy()
 
-            landmarks = None
-            if getattr(results, 'pose_landmarks', None):
-                # MediaPipe returns normalized landmarks (x,y in [0..1])
+        landmarks = None
+        if results.pose_landmarks:
                 raw = []
-                for lm in results.pose_landmarks.landmark:
+                for lm in results.pose_landmarks[0]:
                     raw.append({'x': lm.x, 'y': lm.y, 'z': lm.z, 'visibility': getattr(lm, 'visibility', 1.0)})
 
                 # initialize or smooth landmarks with simple EMA
@@ -232,22 +262,26 @@ def render_pose_wireframe(input_path: str,
                     if pt_prev and pt:
                         cv2.line(overlay, pt_prev, pt, col, int(2 + 2*alpha), lineType=cv2.LINE_AA)
 
-            # Blend overlay onto frame with alpha transparency so underlying video remains visible
-            try:
-                alpha = 0.7  # overlay opacity
-                cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-            except Exception:
-                # fallback: if blending fails, write overlay as-is
-                frame = overlay
+        # Blend overlay onto frame with alpha transparency so underlying video remains visible
+        try:
+            alpha = 0.7  # overlay opacity
+            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+        except Exception:
+            frame = overlay
 
-            if use_ffmpeg_seq:
-                # write PNG frame to temp directory
-                frame_file = os.path.join(tmp_dir, f'frame_{frame_index:06d}.png')
-                cv2.imwrite(frame_file, frame)
-                frame_seq_paths.append(frame_file)
-            else:
-                out.write(frame)
-            frame_index += 1
+        if use_ffmpeg_seq:
+            frame_file = os.path.join(tmp_dir, f'frame_{frame_index:06d}.png')
+            cv2.imwrite(frame_file, frame)
+            frame_seq_paths.append(frame_file)
+        else:
+            out.write(frame)
+        frame_index += 1
+
+    finally:
+        try:
+            landmarker.close()
+        except Exception:
+            pass
 
     cap.release()
     if not use_ffmpeg_seq:
