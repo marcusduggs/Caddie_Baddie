@@ -132,6 +132,9 @@ def render_pose_wireframe(input_path: str,
     if model_path is None:
         raise RuntimeError('Pose landmarker model could not be downloaded')
 
+    from .ai.gl_utils import ensure_gl_stubs
+    ensure_gl_stubs()
+
     base_options = _mp_tasks_python.BaseOptions(
         model_asset_path=model_path,
         delegate=_mp_tasks_python.BaseOptions.Delegate.CPU,

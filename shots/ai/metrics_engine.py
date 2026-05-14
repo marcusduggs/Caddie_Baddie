@@ -152,6 +152,9 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     last_lms: Optional[List[Dict]] = None
     frame_idx = 0
 
+    from .gl_utils import ensure_gl_stubs
+    ensure_gl_stubs()
+
     base_options = _mp_tasks_python.BaseOptions(
         model_asset_path=model_path,
         delegate=_mp_tasks_python.BaseOptions.Delegate.CPU,
