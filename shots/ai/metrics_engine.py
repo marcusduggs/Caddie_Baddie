@@ -29,14 +29,14 @@ logger = logging.getLogger(__name__)
 try:
     import cv2
 except Exception as e:
-    logger.warning('cv2 import failed: %s', e)
+    print(f'metrics_engine: cv2 import failed: {e}', flush=True)
     cv2 = None
 
 try:
     import mediapipe as mp
     from mediapipe.python.solutions import pose as _mp_pose_solutions
 except Exception as e:
-    logger.warning('mediapipe import failed: %s', e)
+    print(f'metrics_engine: mediapipe import failed: {e}', flush=True)
     mp = None
     _mp_pose_solutions = None
 
@@ -102,7 +102,10 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
     Returns [] if mediapipe/opencv are unavailable.
     """
     if mp is None or cv2 is None or _mp_pose_solutions is None:
-        logger.warning("metrics_engine: mediapipe or opencv not available")
+        logger.warning(
+            "metrics_engine: mediapipe or opencv not available (cv2=%s, mp=%s, pose=%s)",
+            cv2, mp, _mp_pose_solutions,
+        )
         return []
 
     if not os.path.exists(video_path):
