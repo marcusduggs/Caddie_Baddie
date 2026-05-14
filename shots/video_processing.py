@@ -93,40 +93,40 @@ def render_pose_wireframe(input_path: str,
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    # Attempt to create a VideoWriter. Some platforms/codecs may not be available;
-    # try a short list of fallbacks. If none work, fall back to writing frames to a
-    # temporary directory and using ffmpeg to encode the final MP4. This avoids
-    # empty output files on platforms where OpenCV is built without MP4 codecs
-    # (common on macOS pip wheels).
-    tried_codecs = ['mp4v', 'avc1', 'H264', 'XVID']
-    out = None
-    for code in tried_codecs:
+
+    # Prefer FFmpeg image-sequence encoding over cv2.VideoWriter: on headless
+    # cloud servers (e.g. Render) cv2.VideoWriter.isOpened() may return True
+    # but produce an empty file because the platform has no display / codec
+    # support. FFmpeg is always available on our deployment, so use it first.
+    ffmpeg_path = shutil.which('ffmpeg')
+    if not ffmpeg_path:
         try:
-            fourcc = cv2.VideoWriter_fourcc(*code)
-            out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
-            if out is not None and out.isOpened():
-                break
-            else:
-                out = None
+            from utils.overlay import FFMPEG_PATH as ffmpeg_path
         except Exception:
-            out = None
+            ffmpeg_path = None
 
     use_ffmpeg_seq = False
     tmp_dir = None
     frame_seq_paths = []
-    if out is None or not out.isOpened():
-        # Fall back to FFmpeg image sequence encoding
-        ffmpeg_path = shutil.which('ffmpeg')
-        if not ffmpeg_path:
-            # Try to import project's ffmpeg resolver if available
-            try:
-                from utils.overlay import FFMPEG_PATH as ffmpeg_path
-            except Exception:
-                ffmpeg_path = None
-        if not ffmpeg_path:
-            raise RuntimeError(f'Failed to open cv2.VideoWriter with codecs={tried_codecs} and ffmpeg not found; check your OpenCV build or install ffmpeg')
+    out = None
+    if ffmpeg_path:
         use_ffmpeg_seq = True
         tmp_dir = tempfile.mkdtemp(prefix='pose_frames_')
+    else:
+        # FFmpeg unavailable — fall back to cv2.VideoWriter
+        tried_codecs = ['mp4v', 'avc1', 'H264', 'XVID']
+        for code in tried_codecs:
+            try:
+                fourcc = cv2.VideoWriter_fourcc(*code)
+                out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+                if out is not None and out.isOpened():
+                    break
+                else:
+                    out = None
+            except Exception:
+                out = None
+        if out is None or not out.isOpened():
+            raise RuntimeError(f'Failed to open cv2.VideoWriter with codecs={tried_codecs} and ffmpeg not found; check your OpenCV build or install ffmpeg')
 
     model_path = _ensure_pose_model()
     if model_path is None:
