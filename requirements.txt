@@ -20,7 +20,7 @@ openai>=1.30.0
 opencv-contrib-python-headless==4.10.0.84
 packaging==26.0
 pillow==12.1.0
-protobuf==3.20.3
+protobuf>=4.21,<5
 pycparser==3.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0

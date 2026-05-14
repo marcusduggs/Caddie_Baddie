@@ -28,13 +28,15 @@ logger = logging.getLogger(__name__)
 
 try:
     import cv2
-except Exception:
+except Exception as e:
+    logger.warning('cv2 import failed: %s', e)
     cv2 = None
 
 try:
     import mediapipe as mp
     from mediapipe.python.solutions import pose as _mp_pose_solutions
-except Exception:
+except Exception as e:
+    logger.warning('mediapipe import failed: %s', e)
     mp = None
     _mp_pose_solutions = None
 
