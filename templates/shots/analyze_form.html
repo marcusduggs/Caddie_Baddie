@@ -383,9 +383,19 @@
         const filesWithIndex = files.map((f, i) => ({ file: f, originalIndex: i }));
         filesWithIndex.sort((a, b) => (a.file.lastModified - b.file.lastModified) || (a.originalIndex - b.originalIndex));
 
+        function showUploadError(msg) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '🚀 Analyze Shot';
+          submitBtn.classList.add('hover:bg-green-700');
+          submitBtn.classList.remove('bg-gray-400');
+          updateProgress('❌ ' + msg);
+          progressDiv.querySelector('strong').textContent = '⚠️ Upload failed';
+        }
+
         async function doDirectUpload() {
           // Step 1: request presigned PUT URLs from Django
           updateProgress('Requesting upload slots…');
+          console.log('[S3Upload] Step 1: requesting presigned URLs');
           let urlResp;
           try {
             urlResp = await fetch('{% url "shots:request_upload_urls" %}', {
@@ -400,26 +410,36 @@
               }),
             });
           } catch (netErr) {
-            console.error('request_upload_urls network error:', netErr);
-            updateProgress('Network error — falling back to standard upload…');
-            form.removeEventListener('submit', arguments.callee);
-            form.submit();
+            console.error('[S3Upload] fetch request_upload_urls failed:', netErr);
+            showUploadError('Network error reaching server. Check your internet and try again.');
+            return;
+          }
+
+          console.log('[S3Upload] request_upload_urls HTTP status:', urlResp.status);
+          if (!urlResp.ok) {
+            const errText = await urlResp.text().catch(function() { return '(no body)'; });
+            console.error('[S3Upload] request_upload_urls non-OK response:', errText);
+            showUploadError('Server error (' + urlResp.status + ') preparing upload. See console for details.');
             return;
           }
 
           let urlData;
-          try { urlData = await urlResp.json(); } catch(e) { urlData = {}; }
+          try { urlData = await urlResp.json(); } catch(e) {
+            console.error('[S3Upload] Could not parse response as JSON:', e);
+            showUploadError('Unexpected server response. See console for details.');
+            return;
+          }
+
+          console.log('[S3Upload] urlData:', JSON.stringify(urlData));
 
           if (!urlData.s3_available) {
-            // S3 not configured (local dev) — fall back to normal POST
-            updateProgress('Uploading via server…');
-            form.submit();
+            console.warn('[S3Upload] s3_available is false — S3 not configured on this server');
+            showUploadError('Direct S3 upload not available. Contact support.');
             return;
           }
           if (urlData.error || !urlData.urls || !urlData.urls.length) {
-            console.error('request_upload_urls error:', urlData);
-            updateProgress('Could not prepare upload. Retrying via server…');
-            form.submit();
+            console.error('[S3Upload] request_upload_urls returned error:', urlData);
+            showUploadError('Could not prepare upload slots: ' + (urlData.error || 'unknown error'));
             return;
           }
 
@@ -459,13 +479,10 @@
             try {
               await uploadFileToS3(file, slot.upload_url, label);
               s3Keys.push({ s3_key: slot.s3_key, original_name: file.name, stroke_number: i + 1 });
+              console.log('[S3Upload] video ' + (i+1) + ' uploaded OK, key:', slot.s3_key);
             } catch (putErr) {
-              console.error('S3 PUT failed for', file.name, putErr);
-              updateProgress('Upload failed for ' + file.name + '. Check S3 CORS policy.');
-              submitBtn.disabled = false;
-              submitBtn.textContent = '🚀 Analyze Shot';
-              submitBtn.classList.add('hover:bg-green-700');
-              submitBtn.classList.remove('bg-gray-400');
+              console.error('[S3Upload] S3 PUT failed for', file.name, putErr);
+              showUploadError('S3 upload failed for ' + file.name + ': ' + putErr.message + '. Check CORS policy and console.');
               return;
             }
           }
@@ -510,9 +527,8 @@
         }
 
         doDirectUpload().catch(function(err) {
-          console.error('Direct upload error:', err);
-          updateProgress('Unexpected error. Retrying via server…');
-          form.submit();
+          console.error('[S3Upload] Unhandled error in doDirectUpload:', err);
+          showUploadError('Unexpected error: ' + err.message + '. See console (F12) for details.');
         });
       });
 
