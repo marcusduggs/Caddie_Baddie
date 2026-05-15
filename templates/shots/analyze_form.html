@@ -145,8 +145,9 @@
         </button>
         <div id="upload-progress" class="hidden mt-4">
           <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
-            <strong class="font-bold">📤 Uploading...</strong>
-            <span class="block sm:inline">Please wait while your video uploads and processes. This may take a minute for large videos.</span>
+            <strong class="font-bold">📤 Uploading directly to S3...</strong>
+            <span class="block mt-1" id="upload-progress-text">Preparing…</span>
+            <p class="text-xs mt-2 text-blue-600">Large iPhone videos may take several minutes. Do not close this tab.</p>
           </div>
         </div>
       </div>
@@ -374,8 +375,8 @@
         progressDiv.classList.remove('hidden');
 
         function updateProgress(msg) {
-          const span = progressDiv.querySelector('span');
-          if (span) span.textContent = msg;
+          const el = document.getElementById('upload-progress-text');
+          if (el) el.textContent = msg;
         }
 
         // Sort files by lastModified so stroke_number reflects capture order
@@ -424,26 +425,43 @@
 
           const uploadSlots = urlData.urls;  // [{upload_url, s3_key, original_name}]
 
-          // Step 2: upload each file directly to S3 via PUT
+          // Upload a single file to S3 via XHR so we get progress events
+          function uploadFileToS3(file, uploadUrl, label) {
+            return new Promise(function(resolve, reject) {
+              const xhr = new XMLHttpRequest();
+              xhr.open('PUT', uploadUrl);
+              xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+              xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                  const pct = Math.round(e.loaded / e.total * 100);
+                  const mb = (e.loaded / (1024 * 1024)).toFixed(1);
+                  const total = (e.total / (1024 * 1024)).toFixed(1);
+                  updateProgress(label + ' — ' + pct + '% (' + mb + ' / ' + total + ' MB)');
+                }
+              });
+              xhr.addEventListener('load', function() {
+                if (xhr.status >= 200 && xhr.status < 300) { resolve(); }
+                else { reject(new Error('S3 PUT returned ' + xhr.status)); }
+              });
+              xhr.addEventListener('error', function() { reject(new Error('Network error during S3 upload')); });
+              xhr.send(file);
+            });
+          }
+
+          // Step 2: upload each file directly to S3 with real progress
           const s3Keys = [];
           for (let i = 0; i < filesWithIndex.length; i++) {
             const { file, originalIndex } = filesWithIndex[i];
             const slot = uploadSlots[i];
             if (!slot) continue;
-            updateProgress(`Uploading video ${i + 1} of ${filesWithIndex.length}: ${file.name}…`);
+            const label = 'Uploading video ' + (i + 1) + ' of ' + filesWithIndex.length + ': ' + file.name;
+            updateProgress(label + ' — 0%');
             try {
-              const putResp = await fetch(slot.upload_url, {
-                method: 'PUT',
-                headers: { 'Content-Type': file.type || 'video/mp4' },
-                body: file,
-              });
-              if (!putResp.ok) {
-                throw new Error(`S3 PUT returned ${putResp.status}`);
-              }
+              await uploadFileToS3(file, slot.upload_url, label);
               s3Keys.push({ s3_key: slot.s3_key, original_name: file.name, stroke_number: i + 1 });
             } catch (putErr) {
               console.error('S3 PUT failed for', file.name, putErr);
-              updateProgress(`Upload failed for ${file.name}. Check S3 CORS policy.`);
+              updateProgress('Upload failed for ' + file.name + '. Check S3 CORS policy.');
               submitBtn.disabled = false;
               submitBtn.textContent = '🚀 Analyze Shot';
               submitBtn.classList.add('hover:bg-green-700');
