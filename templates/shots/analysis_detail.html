@@ -621,19 +621,34 @@
       }
 
       function pollForVideo(onDone) {
+        var consecutiveErrors = 0;
+        var maxErrors = 10;
+        var maxPollMs = 20 * 60 * 1000; // 20-minute safety ceiling
+        var startedAt = Date.now();
         var interval = setInterval(function () {
+          if (Date.now() - startedAt > maxPollMs) {
+            clearInterval(interval);
+            var msg = document.getElementById('overlay-inline-msg');
+            if (msg) { msg.textContent = 'Processing is taking longer than expected. Refresh the page to check status.'; msg.classList.remove('hidden'); }
+            if (onDone) onDone();
+            return;
+          }
           fetch(statusUrl, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
+              consecutiveErrors = 0;
               var overall = data.status || '';
+              var overlayDone = data.overlay_status === 'completed';
               var processedUrl = data.processed_video_url || '';
-              if (overall === 'completed' && processedUrl) {
+              if ((overall === 'completed' || overlayDone) && processedUrl) {
                 clearInterval(interval);
                 var player = document.getElementById('overlay-player');
                 if (player) {
-                  player.innerHTML = '<h3 class="text-xl font-semibold mb-4">🗺️ Processed Video</h3>'
+                  player.innerHTML = '<h3 class="text-xl font-semibold mb-4">Processed Video</h3>'
                     + '<video controls playsinline preload="metadata" class="w-full rounded-lg shadow-lg">'
                     + '<source src="' + processedUrl + '" type="video/mp4"></video>';
+                  var vid = player.querySelector('video');
+                  if (vid) vid.load();
                 }
                 var msg = document.getElementById('overlay-inline-msg');
                 if (msg) { msg.textContent = 'Done!'; msg.classList.remove('hidden'); }
@@ -645,7 +660,16 @@
                 if (onDone) onDone();
               }
             })
-            .catch(function () { clearInterval(interval); if (onDone) onDone(); });
+            .catch(function () {
+              consecutiveErrors++;
+              if (consecutiveErrors >= maxErrors) {
+                clearInterval(interval);
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Connection issue. Refresh the page to check status.'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              }
+              // otherwise keep polling — transient network errors are common during heavy processing
+            });
         }, 3000);
       }
 

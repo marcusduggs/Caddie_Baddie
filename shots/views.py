@@ -1051,11 +1051,14 @@ def overlay_status(request, pk):
         return JsonResponse({'error': 'forbidden'}, status=403)
     # Also expose overall processing status and the processed video URL when available
     processed_url = None
+    processed_name = None
     try:
         if sa.processed_video and hasattr(sa.processed_video, 'url'):
+            processed_name = sa.processed_video.name
             processed_url = sa.processed_video.url
     except Exception:
         processed_url = None
+    print(f'[OVERLAY_STATUS] pk={pk} status={sa.status} overlay_status={sa.overlay_status} processed_video={processed_name} url_set={bool(processed_url)}', flush=True)
     return JsonResponse({
         'overlay_status': sa.overlay_status or 'pending',
         'overlay_error': sa.overlay_error_message or '',

@@ -256,11 +256,14 @@ def _apply_pose_overlay(sa, input_path, final_output_path=None):
             logger.exception('GPS/text re-overlay on wireframe failed for %s', sa.pk)
             dest = overlay_path  # fall back to wireframe without map/text
 
-        save_name = os.path.basename(final_output_path or input_path)
+        # Use a wireframe-specific filename so it never collides with the GPS+text-only upload
+        save_name = f'wf_{sa.pk}.mp4'
         final_size = os.path.getsize(dest) if os.path.exists(dest) else 0
         print(f'[WIREFRAME] Saving to S3 as {save_name}, reading from {dest} ({final_size} bytes) for analysis {sa.pk}', flush=True)
         with open(dest, 'rb') as ofp:
-            sa.processed_video.save(save_name, File(ofp), save=True)
+            # save=False so we control the DB write via update_fields below
+            sa.processed_video.save(save_name, File(ofp), save=False)
+        sa.save(update_fields=['processed_video', 'updated_at'])
         print(f'[WIREFRAME] S3 upload complete for analysis {sa.pk}, processed_video.name={sa.processed_video.name}', flush=True)
         sa.overlay_status = 'completed'
         # Temporary diagnostic — records file sizes so they're visible in admin / overlay_status API
