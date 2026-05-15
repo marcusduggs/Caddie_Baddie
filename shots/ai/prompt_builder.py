@@ -136,7 +136,7 @@ Rotation:
 - Hip rotation (max change from address): {hip}   [Benchmark: irons 40-55°, driver 45-65°]
 - Shoulder rotation (max change from address): {shoulder}   [Benchmark: 90-110°]
 - X-factor (shoulder–hip differential): {x_factor}   [Benchmark PGA Tour: 40-50°]
-- Rotational sequencing score (hip-leads-shoulders): {sequencing}/100   [70+ = good]
+- Rotational sequencing raw value (hip-leads-shoulders heuristic): {sequencing}   [use the Sequencing score below for the 0-100 rating]
 
 Posture & Stability:
 - Spine angle from vertical: {spine_angle}   [Benchmark: 25-40° forward tilt at setup]
@@ -161,6 +161,7 @@ COACHING BENCHMARKS:
 - Hips should clear 5+ frames before shoulder peak for elite sequencing
 
 Based on all of the above, provide personalised PGA-quality coaching feedback.
+IMPORTANT: When referencing any score out of 100, you MUST use the values from the "Computed swing scores" block above — never the raw biomechanical metrics.
 Reference the SPECIFIC numbers — do not give generic advice.
 Where history/trends exist, acknowledge improvement or regression.
 Explain the mechanical WHY behind each fault (how the number causes the miss).
