@@ -177,49 +177,86 @@
     }
   });
 
-  // Upload progress via XHR so we can show a progress bar
+  // Direct S3 upload — bypasses Render to avoid SSL timeouts on large mobile videos
   form.addEventListener('submit', function (e) {
-    if (!input.files || !input.files[0]) return; // let browser validation handle it
+    if (!input.files || !input.files[0]) return;
     e.preventDefault();
+
+    const file = input.files[0];
+    const csrfToken = form.querySelector('[name="csrfmiddlewaretoken"]').value;
+    const club = (form.querySelector('[name="club"]') || {}).value || '';
+    const notes = (form.querySelector('[name="notes"]') || {}).value || '';
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Uploading…';
     progressWrap.classList.remove('hidden');
 
-    const formData = new FormData(form);
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener('progress', function (ev) {
-      if (ev.lengthComputable) {
-        const pct = Math.round((ev.loaded / ev.total) * 100);
-        progressBar.style.width = pct + '%';
-        progressPct.textContent = pct + '%';
-        if (pct === 100) {
-          submitBtn.textContent = 'Processing…';
-        }
-      }
-    });
-
-    xhr.addEventListener('load', function () {
-      // Server redirects to detail page on success — follow it
-      if (xhr.responseURL) {
-        window.location.href = xhr.responseURL;
-      } else {
-        // Fallback: re-submit via normal POST if XHR response is not a redirect
-        form.removeEventListener('submit', arguments.callee);
-        form.submit();
-      }
-    });
-
-    xhr.addEventListener('error', function () {
+    function showError(msg) {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Analyse My Swing';
       progressWrap.classList.add('hidden');
-      alert('Upload failed. Please check your connection and try again.');
-    });
+      alert(msg);
+    }
 
-    xhr.open('POST', form.action || window.location.href);
-    xhr.send(formData);
+    // Step 1: get a presigned PUT URL from Django
+    fetch('{% url "shots:request_upload_urls" %}', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify({ files: [{ name: file.name, type: file.type || 'video/mp4' }] }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(urlData) {
+      if (!urlData.s3_available || !urlData.urls || !urlData.urls[0]) {
+        showError('Upload service unavailable. Please try again.');
+        return;
+      }
+      const slot = urlData.urls[0];
+
+      // Step 2: upload directly to S3 via XHR with real progress
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', slot.upload_url);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+
+      xhr.upload.addEventListener('progress', function(ev) {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          progressBar.style.width = pct + '%';
+          progressPct.textContent = pct + '%';
+          if (pct === 100) submitBtn.textContent = 'Saving…';
+        }
+      });
+
+      xhr.addEventListener('load', function() {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          showError('S3 upload failed (' + xhr.status + '). Check CORS policy.');
+          return;
+        }
+        // Step 3: tell Django to create the analysis record
+        fetch('{% url "shots:quick_upload_from_s3" %}', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ s3_key: slot.s3_key, original_name: file.name, club: club, notes: notes }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.redirect_url) {
+            window.location.href = data.redirect_url;
+          } else {
+            showError('Could not save analysis: ' + (data.error || 'unknown error'));
+          }
+        })
+        .catch(function() { showError('Network error saving analysis. Please try again.'); });
+      });
+
+      xhr.addEventListener('error', function() {
+        showError('Upload failed. Check your connection and try again.');
+      });
+
+      xhr.send(file);
+    })
+    .catch(function() { showError('Could not reach the server. Check your connection.'); });
   });
 })();
 </script>

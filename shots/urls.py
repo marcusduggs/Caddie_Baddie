@@ -49,6 +49,7 @@ urlpatterns = [
     path('api/create-analyses-from-s3/', views.create_analyses_from_s3_keys, name='create_analyses_from_s3_keys'),
     # Quick Upload Mode — lightweight swing analysis without course/round/hole setup
     path('quick-upload/', views.quick_upload, name='quick_upload'),
+    path('api/quick-upload-from-s3/', views.quick_upload_from_s3, name='quick_upload_from_s3'),
     path('quick-swings/', views.quick_swings, name='quick_swings'),
     path('quick-swings/<int:pk>/', views.quick_swing_detail, name='quick_swing_detail'),
     path('quick-swings/<int:pk>/reprocess/', views.quick_reprocess, name='quick_reprocess'),

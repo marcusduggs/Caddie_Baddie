@@ -2649,6 +2649,66 @@ def quick_upload(request):
 
 
 @login_required
+@require_POST
+def quick_upload_from_s3(request):
+    """Create a quick-upload ShotAnalysis from an already S3-uploaded video key.
+
+    POST body (JSON): {"s3_key": "input/abc.mp4", "original_name": "swing.mov",
+                       "club": "Driver", "notes": "..."}
+    Response (JSON):  {"redirect_url": "..."}
+    """
+    import json as _json
+    import tempfile as _tempfile
+
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    s3_key = (payload.get('s3_key') or '').strip()
+    if not s3_key:
+        return JsonResponse({'error': 'No s3_key provided'}, status=400)
+
+    club = (payload.get('club') or 'Unknown').strip()
+    notes = (payload.get('notes') or '').strip()
+
+    try:
+        sa = ShotAnalysis(
+            user=request.user,
+            club=club,
+            distance=0.0,
+            is_quick_upload=True,
+            status='uploading',
+        )
+        if notes:
+            try:
+                sa.notes = notes
+            except Exception:
+                pass
+        sa.save()
+
+        sa.input_video.name = s3_key
+        sa.save(update_fields=['input_video', 'updated_at'])
+
+        try:
+            task_input = sa.input_video.url
+        except Exception:
+            task_input = s3_key
+
+        base_name = os.path.splitext(os.path.basename(s3_key))[0]
+        _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
+        output_path = os.path.join(_out_root, 'output', f"{base_name}_processed.mp4")
+        async_task('shots.tasks.process_video_background', sa.pk, task_input, output_path, None)
+
+        print(f'[S3DIRECT] Quick upload analysis {sa.pk} created from s3_key={s3_key}', flush=True)
+        redirect_url = reverse('shots:quick_swing_detail', args=[sa.pk])
+        return JsonResponse({'redirect_url': redirect_url})
+    except Exception as exc:
+        logger.exception('quick_upload_from_s3: failed for key %s', s3_key)
+        return JsonResponse({'error': str(exc)}, status=500)
+
+
+@login_required
 def quick_swings(request):
     """Library of all quick-upload swings for the logged-in user.
 
