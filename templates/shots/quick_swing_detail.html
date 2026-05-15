@@ -338,6 +338,15 @@
     <h3 class="text-lg font-semibold mb-1 text-gray-800">💬 Ask Your AI Coach</h3>
     <p class="text-sm text-gray-400 mb-4">Ask a follow-up question about your swing mechanics.</p>
 
+    {% if is_demo %}
+    <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 text-center">
+      <p class="text-sm font-semibold text-indigo-800 mb-1">Want to chat with the AI coach?</p>
+      <p class="text-xs text-indigo-500 mb-3">Create a free account to upload your own swings and get personalised coaching.</p>
+      <a href="/accounts/signup/" class="inline-block bg-indigo-600 text-white text-sm font-bold px-5 py-2 rounded-xl hover:bg-indigo-700 transition">
+        Get Started Free →
+      </a>
+    </div>
+    {% else %}
     <div class="flex gap-2">
       <input type="text" id="coach-question"
              placeholder="e.g. Why do I keep slicing? What drill should I try?"
@@ -367,6 +376,7 @@
       </svg>
       Thinking…
     </div>
+    {% endif %}
   </div>
   {% endif %}
 

@@ -75,6 +75,8 @@ class ShotAnalysis(models.Model):
     is_favorite = models.BooleanField(default=False)
     # Quick Upload mode: bypasses Course → Round → Hole workflow
     is_quick_upload = models.BooleanField(default=False)
+    # Public demo — viewable without login (set via Django admin)
+    is_public = models.BooleanField(default=False)
 
     # AI Swing Coach fields — populated asynchronously during background processing
     ai_main_fault = models.TextField(blank=True, null=True)

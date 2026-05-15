@@ -111,7 +111,7 @@
   <div class="text-center mb-10">
     <h1 class="text-3xl font-extrabold text-gray-900 mb-2">AI Golf Coaching, Instantly.</h1>
     <p class="text-gray-400 text-sm mb-6">Upload a swing. Get scores, shot shape, pro comparisons, and drills — in seconds.</p>
-    <div class="flex gap-3 justify-center">
+    <div class="flex flex-wrap gap-3 justify-center">
       <a href="/accounts/signup/"
          class="inline-block bg-indigo-600 text-white text-sm font-bold px-6 py-2.5 rounded-xl shadow hover:bg-indigo-700 transition">
         Get Started Free
@@ -119,6 +119,10 @@
       <a href="/accounts/login/"
          class="inline-block bg-white text-gray-800 text-sm font-semibold px-6 py-2.5 rounded-xl shadow border border-gray-200 hover:bg-gray-50 transition">
         Log In
+      </a>
+      <a href="{% url 'shots:demo_swing' %}"
+         class="inline-block bg-green-500 text-white text-sm font-bold px-6 py-2.5 rounded-xl shadow hover:bg-green-600 transition">
+        View Live Demo Analysis →
       </a>
     </div>
   </div>

@@ -29,8 +29,8 @@ requeue_for_processing.short_description = 'Requeue selected analyses for proces
 
 @admin.register(ShotAnalysis)
 class ShotAnalysisAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'status', 'overlay_status', 'club', 'distance', 'created_at')
-    list_filter = ('status', 'overlay_status', 'club')
+    list_display = ('id', 'user', 'status', 'overlay_status', 'club', 'is_public', 'is_quick_upload', 'created_at')
+    list_filter = ('status', 'overlay_status', 'club', 'is_public', 'is_quick_upload')
     search_fields = ('id', 'user__username')
     readonly_fields = ('created_at',)
     actions = [requeue_for_processing]

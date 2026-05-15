@@ -53,4 +53,6 @@ urlpatterns = [
     path('quick-swings/', views.quick_swings, name='quick_swings'),
     path('quick-swings/<int:pk>/', views.quick_swing_detail, name='quick_swing_detail'),
     path('quick-swings/<int:pk>/reprocess/', views.quick_reprocess, name='quick_reprocess'),
+    # Public demo — no login required, redirects to the marked public swing
+    path('demo/', views.demo_swing, name='demo_swing'),
 ]

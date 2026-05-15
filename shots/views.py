@@ -2541,7 +2541,10 @@ def ai_coach_chat(request, pk):
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
-    sa = get_object_or_404(ShotAnalysis, pk=pk, user=request.user)
+    sa = get_object_or_404(ShotAnalysis, pk=pk)
+    if not sa.is_public:
+        if not request.user.is_authenticated or sa.user != request.user:
+            return JsonResponse({'error': 'Not found'}, status=404)
 
     try:
         body = _json.loads(request.body)
@@ -2560,7 +2563,7 @@ def ai_coach_chat(request, pk):
 
     try:
         from .ai.chat_agent import answer_question
-        answer = answer_question(question, sa.pk, request.user.pk, history=history)
+        answer = answer_question(question, sa.pk, sa.user.pk, history=history)
         return JsonResponse({'answer': answer})
     except Exception:
         logger.exception('ai_coach_chat: unexpected error for analysis %s', pk)
@@ -2768,12 +2771,19 @@ def quick_swings(request):
     })
 
 
-@login_required
 def quick_swing_detail(request, pk):
-    """Full AI analysis detail page for a quick-upload swing."""
-    sa = get_object_or_404(ShotAnalysis, pk=pk, user=request.user, is_quick_upload=True)
+    """Full AI analysis detail page for a quick-upload swing.
+
+    Public when is_public=True; otherwise requires the authenticated owner.
+    """
+    sa = get_object_or_404(ShotAnalysis, pk=pk, is_quick_upload=True)
+    if not sa.is_public:
+        if not request.user.is_authenticated or sa.user != request.user:
+            from django.contrib.auth.views import redirect_to_login
+            return redirect_to_login(request.get_full_path())
     return render(request, 'shots/quick_swing_detail.html', {
         'analysis': sa,
+        'is_demo': sa.is_public and not (request.user.is_authenticated and sa.user == request.user),
         'overlay_status_url': reverse('shots:overlay_status', args=[sa.pk]),
         'chat_url': reverse('shots:ai_coach_chat', args=[sa.pk]),
     })
@@ -3012,3 +3022,16 @@ def create_analyses_from_s3_keys(request):
         redirect_url = reverse('shots:analysis_detail', args=[created_pks[0]])
 
     return JsonResponse({'redirect_url': redirect_url, 'pks': created_pks})
+
+
+def demo_swing(request):
+    """Redirect to the most recent public quick-upload swing (demo mode)."""
+    sa = (
+        ShotAnalysis.objects
+        .filter(is_public=True, is_quick_upload=True, status='completed')
+        .order_by('-created_at')
+        .first()
+    )
+    if sa:
+        return redirect(reverse('shots:quick_swing_detail', args=[sa.pk]))
+    return redirect(reverse('shots:home'))
