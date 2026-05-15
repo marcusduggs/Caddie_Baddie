@@ -28,7 +28,7 @@
   <!-- Debug UI removed -->
     
   <!-- Upload Form -->
-  <form method="post" action="{% url 'shots:analyze_upload' %}" enctype="multipart/form-data" class="bg-white p-4 rounded shadow mb-6">
+  <form id="analyze-upload-form" method="post" action="{% url 'shots:analyze_upload' %}" enctype="multipart/form-data" class="bg-white p-4 rounded shadow mb-6">
       {% csrf_token %}
 
   <!-- Round selection (existing only) -->
@@ -285,7 +285,7 @@
     
     // Show upload progress when form is submitted
     document.addEventListener('DOMContentLoaded', function() {
-      const form = document.querySelector('form');
+      const form = document.getElementById('analyze-upload-form');
       const submitBtn = document.getElementById('submit-btn');
       const progressDiv = document.getElementById('upload-progress');
 
