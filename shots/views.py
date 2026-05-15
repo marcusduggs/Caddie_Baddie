@@ -45,6 +45,33 @@ import json
 
 logger = logging.getLogger(__name__)
 
+import concurrent.futures as _futures
+
+
+def _upload_input_video(pk: int, file_name: str, file_obj) -> tuple:
+    """Upload one input video to S3 from a worker thread.
+
+    Returns (pk, exception_or_None).  Closes the per-thread DB connection on
+    exit so thread-pool reuse doesn't leak idle connections.
+    """
+    from django.db import connection as _conn
+    try:
+        from shots.models import ShotAnalysis
+        sa = ShotAnalysis.objects.get(pk=pk)
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+        sa.input_video.save(file_name, file_obj, save=True)
+        return pk, None
+    except Exception as exc:
+        return pk, exc
+    finally:
+        try:
+            _conn.close()
+        except Exception:
+            pass
+
 
 def _tee_matches(preferred, name):
     """Return True if the preferred tee matches the tee name based on token or substring."""
@@ -476,13 +503,19 @@ def analyze_upload(request):
             except Exception:
                 distance_val = None
 
+            # ── Phase 1: create DB records for every file (fast, sequential) ──────
+            # We do NOT upload to S3 here; uploads happen in parallel below.
             saved_items = []
+            upload_queue = []   # (pk, uf_name, uf_obj, a_temp, original_index)
+            posted_course = (data.get('course') or '').strip()
+            posted_hole   = data.get('hole') or ''
+            shared_round  = getattr(analysis, 'round', None) or rr
+
             for original_index, uf in enumerate(uploaded_files):
                 try:
                     a_temp = ShotAnalysis()
                     try: a_temp.user = request.user
                     except Exception: pass
-                    # minimal defaults so save() succeeds
                     try:
                         a_temp.distance = float(distance_val) if distance_val is not None else 0.0
                     except Exception:
@@ -492,109 +525,76 @@ def analyze_upload(request):
                             a_temp.selected_tee = final_selected
                     except Exception:
                         pass
-                    # Persist course name on each per-file analysis record as well
                     try:
-                        posted_course = (data.get('course') or '').strip()
                         if posted_course:
                             a_temp.course_name = posted_course
                     except Exception:
                         pass
                     try:
-                        hole_val = data.get('hole') or ''
-                        if hole_val:
-                            try:
-                                a_temp.hole_number = int(hole_val)
-                            except Exception:
-                                pass  # leave hole_number unset rather than assigning a non-int
+                        if posted_hole:
+                            a_temp.hole_number = int(posted_hole)
                     except Exception:
                         pass
-                    # Attach round if previously resolved
                     try:
-                        if getattr(analysis, 'round', None):
-                            a_temp.round = analysis.round
-                        elif rr:
-                            a_temp.round = rr
-                    except Exception:
-                        pass
-
-                    # If the per-file analysis has a round attached but no explicit course was posted,
-                    # inherit the round's course_name so course-scoped pages immediately pick up the shot.
-                    try:
-                        if getattr(a_temp, 'round', None) and not getattr(a_temp, 'course_name', None):
-                            try:
-                                if getattr(a_temp.round, 'course_name', None):
-                                    a_temp.course_name = a_temp.round.course_name
-                            except Exception:
-                                pass
+                        if shared_round:
+                            a_temp.round = shared_round
+                            if not getattr(a_temp, 'course_name', None) and getattr(shared_round, 'course_name', None):
+                                a_temp.course_name = shared_round.course_name
                     except Exception:
                         pass
 
                     a_temp.status = 'uploading'
                     a_temp.save()
+                    upload_queue.append((a_temp.pk, uf.name, uf, a_temp, original_index))
+                except Exception:
+                    logger.exception('Failed to create ShotAnalysis record for upload index %s', original_index)
 
-                    # Save uploaded file to the model's FileField (writes to MEDIA_ROOT)
-                    try:
-                        a_temp.input_video.save(uf.name, uf, save=True)
-                    except Exception:
-                        # In case the UploadedFile is exhausted, write contents from temp
-                        try:
-                            tmp = utils.save_uploaded_tempfile(uf)
-                            with open(tmp, 'rb') as fh:
-                                a_temp.input_video.save(uf.name, File(fh), save=True)
-                        except Exception:
-                            pass
+            # ── Phase 2: upload all videos to S3 in parallel ────────────────────
+            _failed_pks: set = set()
+            if upload_queue:
+                max_workers = min(len(upload_queue), 5)
+                with _futures.ThreadPoolExecutor(max_workers=max_workers) as _pool:
+                    _futs = {
+                        _pool.submit(_upload_input_video, pk, name, uf): pk
+                        for pk, name, uf, _, _ in upload_queue
+                    }
+                    _failed_pks = set()
+                    for _fut in _futures.as_completed(_futs):
+                        _pk, _err = _fut.result()
+                        if _err:
+                            logger.error('Parallel video upload failed for analysis %s: %s', _pk, _err)
+                            _failed_pks.add(_pk)
 
-                    # Probe the saved file for creation time; fallback to file mtime or model created_at
+            # ── Phase 3: collect results, probe timestamps (best-effort) ─────────
+            for pk, uf_name, uf, a_temp, original_index in upload_queue:
+                if pk in _failed_pks:
+                    continue
+                probe_ts = None
+                # .path raises NotImplementedError on S3 storage — swallow silently
+                try:
+                    probe_dt = probe_video_creation_time(a_temp.input_video.path)
+                    if probe_dt is not None:
+                        probe_ts = probe_dt.timestamp()
+                except Exception:
                     probe_ts = None
+                if probe_ts is None:
                     try:
-                        probe_dt = probe_video_creation_time(a_temp.input_video.path)
-                        if probe_dt is not None:
-                            probe_ts = probe_dt.timestamp()
+                        probe_ts = float(os.path.getmtime(a_temp.input_video.path))
                     except Exception:
                         probe_ts = None
-                    if probe_ts is None:
-                        try:
-                            probe_ts = float(os.path.getmtime(a_temp.input_video.path))
-                        except Exception:
-                            probe_ts = None
-                    # Final fallback: use model created_at timestamp
-                    if probe_ts is None:
-                        try:
-                            probe_ts = a_temp.created_at.timestamp()
-                        except Exception:
-                            probe_ts = None
-
-                    # Persist probe_creation_time (use probe_ts when available)
+                if probe_ts is None:
                     try:
-                        if probe_ts is not None:
-                            import datetime
-                            a_temp.probe_creation_time = datetime.datetime.fromtimestamp(float(probe_ts), tz=datetime.timezone.utc)
-                            a_temp.save()
+                        probe_ts = a_temp.created_at.timestamp()
                     except Exception:
-                        pass
-
-                    # Synchronously attempt a lightweight GPS extraction so the hole map
-                    # can show a marker immediately after upload (without waiting for
-                    # background processing). This is best-effort and must not block.
-                    try:
-                        coords = None
-                        try:
-                            coords = utils.extract_coords_from_video(a_temp.input_video.path)
-                        except Exception:
-                            coords = None
-                        if coords:
-                            lon, lat = coords
-                            try:
-                                from .models import ShotDistance
-                                ShotDistance.objects.create(shot=a_temp, origin_lat=float(lat), origin_lng=float(lon), hole_number=getattr(a_temp, 'hole_number', None))
-                            except Exception:
-                                logger.exception('Failed to create synchronous ShotDistance for analysis %s', a_temp.pk)
-                    except Exception:
-                        pass
-
-                    saved_items.append({'analysis': a_temp, 'probe_ts': probe_ts, 'original_index': original_index})
+                        probe_ts = None
+                try:
+                    if probe_ts is not None:
+                        import datetime
+                        a_temp.probe_creation_time = datetime.datetime.fromtimestamp(float(probe_ts), tz=datetime.timezone.utc)
+                        a_temp.save(update_fields=['probe_creation_time', 'updated_at'])
                 except Exception:
-                    logger.exception('Failed to save uploaded file to model')
+                    pass
+                saved_items.append({'analysis': a_temp, 'probe_ts': probe_ts, 'original_index': original_index})
 
             # Determine ordering using posted stroke_number_{original_index} values when present.
             try:
@@ -678,24 +678,6 @@ def analyze_upload(request):
                         logger.exception('Failed to start background processing for analysis %s', getattr(a_saved, 'pk', None))
 
                     created_pks.append(getattr(a_saved, 'pk', None))
-                    # Ensure there is at least one ShotDistance for this analysis; if missing try to extract and persist
-                    try:
-                        from .models import ShotDistance
-                        has_sd = ShotDistance.objects.filter(shot=a_saved).exists()
-                        if not has_sd:
-                            try:
-                                coords = None
-                                try:
-                                    coords = utils.extract_coords_from_video(a_saved.input_video.path)
-                                except Exception:
-                                    coords = None
-                                if coords:
-                                    lonx, latx = coords
-                                    ShotDistance.objects.create(shot=a_saved, origin_lat=float(latx), origin_lng=float(lonx), hole_number=getattr(a_saved, 'hole_number', None))
-                            except Exception:
-                                logger.exception('Failed to persist ShotDistance for analysis %s', getattr(a_saved, 'pk', None))
-                    except Exception:
-                        pass
                 except Exception as e:
                     logger.exception('Failed to finalize saved analysis item: %s', e)
 
