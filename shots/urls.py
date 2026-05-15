@@ -44,6 +44,9 @@ urlpatterns = [
     path('round/<int:round_pk>/hole/<int:hole>/delete/', views.delete_round_hole, name='delete_round_hole'),
     path('round/<int:round_pk>/delete/', views.delete_round, name='delete_round'),
     path('courses/<int:pk>/delete/', views.delete_course, name='delete_course'),
+    # Direct S3 upload (bypass Render for video data to avoid SSL timeouts)
+    path('api/request-upload-urls/', views.request_upload_urls, name='request_upload_urls'),
+    path('api/create-analyses-from-s3/', views.create_analyses_from_s3_keys, name='create_analyses_from_s3_keys'),
     # Quick Upload Mode — lightweight swing analysis without course/round/hole setup
     path('quick-upload/', views.quick_upload, name='quick_upload'),
     path('quick-swings/', views.quick_swings, name='quick_swings'),

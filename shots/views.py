@@ -2761,3 +2761,191 @@ def quick_reprocess(request, pk):
         return JsonResponse({'error': str(e)}, status=500)
 
     return JsonResponse({'status': 'queued'})
+
+
+# ── Direct S3 upload helpers ─────────────────────────────────────────────────
+# These two views allow the browser to upload videos directly to S3, bypassing
+# Render entirely for video data. This avoids SSL connection timeouts on Render
+# when uploading multiple large iPhone videos.
+
+@login_required
+@require_POST
+def request_upload_urls(request):
+    """Return presigned S3 PUT URLs so the browser can upload directly to S3.
+
+    POST body (JSON): {"files": [{"name": "clip.mp4", "type": "video/mp4"}]}
+    Response (JSON):  {"urls": [...], "s3_available": true}
+
+    Falls back gracefully when S3 is not configured (local dev): returns
+    {"s3_available": false} and the JS falls back to normal multipart POST.
+    """
+    import json as _json
+    import uuid as _uuid
+
+    if not settings.AWS_STORAGE_BUCKET_NAME:
+        return JsonResponse({'s3_available': False})
+
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    files = payload.get('files', [])
+    if not files or not isinstance(files, list) or len(files) > 10:
+        return JsonResponse({'error': 'files must be a list of 1-10 items'}, status=400)
+
+    try:
+        import boto3 as _boto3
+        s3 = _boto3.client('s3', region_name=settings.AWS_S3_REGION_NAME)
+    except Exception as exc:
+        return JsonResponse({'error': f'boto3 error: {exc}'}, status=500)
+
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    result_urls = []
+    for f in files:
+        name = f.get('name', 'video.mp4')
+        content_type = f.get('type') or 'video/mp4'
+        ext = os.path.splitext(name)[-1].lower() or '.mp4'
+        s3_key = f'input/{_uuid.uuid4().hex}{ext}'
+        try:
+            upload_url = s3.generate_presigned_url(
+                'put_object',
+                Params={
+                    'Bucket': bucket,
+                    'Key': s3_key,
+                    'ContentType': content_type,
+                },
+                ExpiresIn=7200,  # 2-hour window to complete the upload
+            )
+            result_urls.append({
+                'upload_url': upload_url,
+                's3_key': s3_key,
+                'original_name': name,
+            })
+        except Exception as exc:
+            return JsonResponse({'error': f'Presign failed for {name}: {exc}'}, status=500)
+
+    return JsonResponse({'s3_available': True, 'urls': result_urls})
+
+
+@login_required
+@require_POST
+def create_analyses_from_s3_keys(request):
+    """Create ShotAnalysis records for videos already uploaded directly to S3.
+
+    POST body (JSON):
+      {
+        "s3_keys": [{"s3_key": "input/abc.mp4", "original_name": "clip.mp4", "stroke_number": 1}],
+        "round_id": "42",
+        "hole": "7",
+        "selected_tee": "Blue",
+        "course": "Pebble Beach",
+        "overlay_pose": true
+      }
+    Response (JSON): {"redirect_url": "...", "pks": [...]}
+    """
+    import json as _json
+
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    s3_items = payload.get('s3_keys', [])
+    if not s3_items:
+        return JsonResponse({'error': 'No s3_keys provided'}, status=400)
+
+    round_id = (payload.get('round_id') or '').strip()
+    hole = (payload.get('hole') or '').strip()
+    selected_tee = (payload.get('selected_tee') or '').strip()
+    course_name = (payload.get('course') or '').strip()
+    overlay_requested = bool(payload.get('overlay_pose'))
+
+    rr = None
+    if round_id:
+        try:
+            from .models import ShotRound
+            rr = ShotRound.objects.filter(pk=int(round_id), user=request.user).first()
+        except Exception:
+            pass
+
+    created_pks = []
+    for item in s3_items:
+        s3_key = (item.get('s3_key') or '').strip()
+        original_name = item.get('original_name') or os.path.basename(s3_key)
+        stroke_number = item.get('stroke_number')
+
+        if not s3_key:
+            continue
+
+        try:
+            a = ShotAnalysis()
+            a.user = request.user
+            a.distance = 0.0
+            a.status = 'uploading'
+            a.overlay_requested = overlay_requested
+            if selected_tee:
+                a.selected_tee = selected_tee
+            if course_name:
+                a.course_name = course_name
+            if hole:
+                try:
+                    a.hole_number = int(hole)
+                except Exception:
+                    pass
+            if rr:
+                a.round = rr
+                if not course_name and getattr(rr, 'course_name', None):
+                    a.course_name = rr.course_name
+            if stroke_number is not None:
+                try:
+                    a.stroke_number = int(stroke_number)
+                except Exception:
+                    pass
+            a.save()
+
+            # Point the FileField at the already-uploaded S3 key without re-uploading
+            a.input_video.name = s3_key
+            a.save(update_fields=['input_video', 'updated_at'])
+
+            try:
+                _input_path = a.input_video.url
+            except Exception:
+                _input_path = s3_key
+
+            base_name = os.path.splitext(os.path.basename(s3_key))[0]
+            output_filename = f"{base_name}_processed.mp4"
+            import tempfile as _tempfile
+            _out_root = str(settings.MEDIA_ROOT) if settings.MEDIA_ROOT else _tempfile.gettempdir()
+            output_path = os.path.join(_out_root, 'output', output_filename)
+
+            async_task('shots.tasks.process_video_background', a.pk, _input_path, output_path, None)
+            created_pks.append(a.pk)
+            print(f'[S3DIRECT] Created analysis {a.pk} from s3_key={s3_key}, queued processing', flush=True)
+        except Exception as exc:
+            logger.exception('create_analyses_from_s3_keys: failed for key %s: %s', s3_key, exc)
+
+    if not created_pks:
+        return JsonResponse({'error': 'No analyses could be created'}, status=500)
+
+    redirect_url = None
+    try:
+        first_analysis = ShotAnalysis.objects.filter(pk=created_pks[0]).first()
+        if first_analysis:
+            hole_num = getattr(first_analysis, 'hole_number', None)
+            if getattr(first_analysis, 'round', None) and hole_num is not None:
+                redirect_url = reverse('shots:round_hole_shots', args=[first_analysis.round.pk, hole_num])
+            if not redirect_url:
+                try:
+                    course_slug = slugify(getattr(first_analysis, 'course_name', '') or '')
+                    if course_slug and hole_num is not None:
+                        redirect_url = reverse('shots:hole_shots', kwargs={'course_slug': course_slug, 'hole': hole_num})
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if not redirect_url:
+        redirect_url = reverse('shots:analysis_detail', args=[created_pks[0]])
+
+    return JsonResponse({'redirect_url': redirect_url, 'pks': created_pks})

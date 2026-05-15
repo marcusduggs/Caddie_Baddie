@@ -316,8 +316,14 @@
   if (teeSelEl) teeSelEl.addEventListener('change', updateFileInputState);
       } catch (e) {}
       
+      // ── Direct S3 upload submit handler ────────────────────────────────────
+      // Uploads videos directly from the browser to S3 (bypasses Render) to
+      // avoid SSL connection timeouts on large multi-file uploads.
+      // Falls back to normal multipart POST when S3 is not configured (local dev).
       form.addEventListener('submit', function(e) {
-        // Ensure a round/new round and hole number are provided; tee selection is required too but can be selected before final submit
+        e.preventDefault();
+
+        // Validate required fields first
         try {
           const roundSel = document.querySelector('select[name="round_id"]');
           const newRnd = document.querySelector('input[name="new_round_name"]');
@@ -325,34 +331,171 @@
           const teeSel = document.querySelector('select[name="selected_tee"]');
           const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
           if (!hasRound) {
-            e.preventDefault();
             const warn = document.getElementById('round-warning');
             if (warn) warn.classList.remove('hidden');
             alert('Please choose an existing round or create a new round before uploading.');
-            return false;
+            return;
           }
-          // Require hole number
           const holeVal = holeInput && holeInput.value && holeInput.value.trim();
           if (!holeVal) {
-            e.preventDefault();
             alert('Please enter a Hole number before uploading.');
-            return false;
+            return;
           }
-          // Enforce tee selection before final submit
           if (!teeSel || !teeSel.value) {
-            e.preventDefault();
             alert('Please select a Preferred Tee before uploading.');
-            return false;
+            return;
           }
         } catch (er) { console.error(er); }
-  // Clubs are optional at upload; they can be set later on the shot detail page.
 
-        // Show progress indicator
+        const fileInput = document.getElementById('{{ form.input_video.id_for_label }}');
+        const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+        if (!files.length) {
+          alert('Please select at least one video file.');
+          return;
+        }
+
+        // Collect form metadata
+        function formVal(name) {
+          const el = document.querySelector('[name="' + name + '"]');
+          return el ? el.value : '';
+        }
+        const roundId = formVal('round_id');
+        const hole = formVal('hole');
+        const selectedTee = formVal('selected_tee');
+        const course = formVal('course');
+        const overlayPose = !!document.querySelector('[name="overlay_pose"]:checked');
+        const csrfToken = formVal('csrfmiddlewaretoken');
+
+        // Disable submit and show progress
         submitBtn.disabled = true;
         submitBtn.textContent = '⏳ Uploading...';
         submitBtn.classList.remove('hover:bg-green-700');
         submitBtn.classList.add('bg-gray-400');
         progressDiv.classList.remove('hidden');
+
+        function updateProgress(msg) {
+          const span = progressDiv.querySelector('span');
+          if (span) span.textContent = msg;
+        }
+
+        // Sort files by lastModified so stroke_number reflects capture order
+        const filesWithIndex = files.map((f, i) => ({ file: f, originalIndex: i }));
+        filesWithIndex.sort((a, b) => (a.file.lastModified - b.file.lastModified) || (a.originalIndex - b.originalIndex));
+
+        async function doDirectUpload() {
+          // Step 1: request presigned PUT URLs from Django
+          updateProgress('Requesting upload slots…');
+          let urlResp;
+          try {
+            urlResp = await fetch('{% url "shots:request_upload_urls" %}', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+              },
+              body: JSON.stringify({
+                files: filesWithIndex.map(e => ({ name: e.file.name, type: e.file.type || 'video/mp4' }))
+              }),
+            });
+          } catch (netErr) {
+            console.error('request_upload_urls network error:', netErr);
+            updateProgress('Network error — falling back to standard upload…');
+            form.removeEventListener('submit', arguments.callee);
+            form.submit();
+            return;
+          }
+
+          let urlData;
+          try { urlData = await urlResp.json(); } catch(e) { urlData = {}; }
+
+          if (!urlData.s3_available) {
+            // S3 not configured (local dev) — fall back to normal POST
+            updateProgress('Uploading via server…');
+            form.submit();
+            return;
+          }
+          if (urlData.error || !urlData.urls || !urlData.urls.length) {
+            console.error('request_upload_urls error:', urlData);
+            updateProgress('Could not prepare upload. Retrying via server…');
+            form.submit();
+            return;
+          }
+
+          const uploadSlots = urlData.urls;  // [{upload_url, s3_key, original_name}]
+
+          // Step 2: upload each file directly to S3 via PUT
+          const s3Keys = [];
+          for (let i = 0; i < filesWithIndex.length; i++) {
+            const { file, originalIndex } = filesWithIndex[i];
+            const slot = uploadSlots[i];
+            if (!slot) continue;
+            updateProgress(`Uploading video ${i + 1} of ${filesWithIndex.length}: ${file.name}…`);
+            try {
+              const putResp = await fetch(slot.upload_url, {
+                method: 'PUT',
+                headers: { 'Content-Type': file.type || 'video/mp4' },
+                body: file,
+              });
+              if (!putResp.ok) {
+                throw new Error(`S3 PUT returned ${putResp.status}`);
+              }
+              s3Keys.push({ s3_key: slot.s3_key, original_name: file.name, stroke_number: i + 1 });
+            } catch (putErr) {
+              console.error('S3 PUT failed for', file.name, putErr);
+              updateProgress(`Upload failed for ${file.name}. Check S3 CORS policy.`);
+              submitBtn.disabled = false;
+              submitBtn.textContent = '🚀 Analyze Shot';
+              submitBtn.classList.add('hover:bg-green-700');
+              submitBtn.classList.remove('bg-gray-400');
+              return;
+            }
+          }
+
+          // Step 3: tell Django to create ShotAnalysis records from the uploaded keys
+          updateProgress('Saving analyses…');
+          let createResp;
+          try {
+            createResp = await fetch('{% url "shots:create_analyses_from_s3_keys" %}', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+              },
+              body: JSON.stringify({
+                s3_keys: s3Keys,
+                round_id: roundId,
+                hole: hole,
+                selected_tee: selectedTee,
+                course: course,
+                overlay_pose: overlayPose,
+              }),
+            });
+          } catch (netErr) {
+            console.error('create_analyses_from_s3_keys network error:', netErr);
+            updateProgress('Server error saving analyses. Please refresh and try again.');
+            return;
+          }
+
+          let createData;
+          try { createData = await createResp.json(); } catch(e) { createData = {}; }
+
+          if (createData.redirect_url) {
+            updateProgress('Done! Redirecting…');
+            window.location.href = createData.redirect_url;
+          } else {
+            console.error('create_analyses_from_s3_keys error:', createData);
+            updateProgress('Analyses queued. Redirecting to your shots…');
+            setTimeout(function() { window.location.href = '{% url "shots:shot_list" %}'; }, 2000);
+          }
+        }
+
+        doDirectUpload().catch(function(err) {
+          console.error('Direct upload error:', err);
+          updateProgress('Unexpected error. Retrying via server…');
+          form.submit();
+        });
       });
 
       // Selected round display logic
