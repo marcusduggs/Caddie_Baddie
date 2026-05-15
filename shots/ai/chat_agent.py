@@ -19,7 +19,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_MODEL = "gpt-4o"
 _MAX_RESPONSE_TOKENS = 300
 
 
@@ -74,13 +74,20 @@ def _build_context(analysis_pk: int, user_id: int) -> str:
     return "\n".join(lines)
 
 
-def answer_question(question: str, analysis_pk: int, user_id: int) -> str:
+def answer_question(
+    question: str,
+    analysis_pk: int,
+    user_id: int,
+    history: Optional[list] = None,
+) -> str:
     """Answer a player's golf question using their swing data as context.
 
     Args:
         question:    The player's natural-language question.
         analysis_pk: PK of the ShotAnalysis to use for context.
         user_id:     Django user pk (for loading tendencies/history).
+        history:     Prior conversation as [{"role": "user"|"assistant", "content": "..."}].
+                     Kept to the last 10 exchanges to avoid token overflow.
 
     Returns:
         A coaching response string.  Returns a polite fallback on error.
@@ -105,19 +112,28 @@ def answer_question(question: str, analysis_pk: int, user_id: int) -> str:
         "Do not make up numbers — only use the data provided."
     )
 
-    user_prompt = (
-        f"Here is the player's current swing data:\n{context}\n\n"
-        f"Player question: {question}"
-    ) if context else question
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Inject swing data as the opening exchange so history can reference it
+    if context:
+        messages.append({"role": "user", "content": f"Here is my swing data:\n{context}"})
+        messages.append({"role": "assistant", "content": "Got it — I've reviewed your swing data. What would you like to know?"})
+
+    # Append prior conversation (cap at last 10 turns to stay within token budget)
+    if history:
+        for msg in history[-10:]:
+            role = msg.get("role", "")
+            content = (msg.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": question})
 
     try:
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model=os.environ.get("OPENAI_COACH_MODEL", _DEFAULT_MODEL),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.5,
             max_tokens=_MAX_RESPONSE_TOKENS,
         )

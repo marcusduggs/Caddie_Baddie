@@ -365,46 +365,38 @@
     {% if analysis.ai_main_fault or analysis.ai_overall_score is not None %}
     <div class="bg-white shadow-md rounded-lg p-6 mt-6">
       <h3 class="text-xl font-semibold mb-2">💬 Ask Your AI Coach</h3>
-      <p class="text-sm text-gray-500 mb-4">Ask a follow-up question about your swing. The coach will use your specific metrics to respond.</p>
+      <p class="text-sm text-gray-500 mb-2">The coach remembers everything you've discussed this session.</p>
 
+      <!-- Conversation thread -->
+      <div id="coach-thread" class="space-y-3 mb-4 max-h-96 overflow-y-auto"></div>
+
+      <!-- Loading indicator -->
+      <div id="coach-loading" class="hidden text-sm text-gray-500 flex items-center gap-2 mb-3">
+        <svg class="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        Thinking...
+      </div>
+
+      <!-- Input row -->
       <div class="flex gap-2">
         <input type="text" id="coach-question"
                placeholder="e.g. Why do I keep slicing? What drill should I focus on?"
                class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
                maxlength="500" />
         <button id="coach-ask-btn"
-                class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center gap-1">
+                class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition">
           Ask
         </button>
       </div>
 
       <!-- Quick question chips -->
       <div class="flex flex-wrap gap-2 mt-3">
-        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
-          Why do I slice?
-        </button>
-        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
-          What's my biggest issue?
-        </button>
-        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
-          How can I add distance?
-        </button>
-        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">
-          Explain my tempo score
-        </button>
-      </div>
-
-      <!-- Response area -->
-      <div id="coach-response" class="hidden mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
-        <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">🤖 Coach Response</p>
-        <p id="coach-response-text" class="text-sm text-gray-800 leading-relaxed"></p>
-      </div>
-      <div id="coach-loading" class="hidden mt-4 text-sm text-gray-500 flex items-center gap-2">
-        <svg class="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-        </svg>
-        Thinking...
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">Why do I slice?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">What's my biggest issue?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">How can I add distance?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">Explain my tempo score</button>
       </div>
     </div>
 
@@ -412,30 +404,51 @@
     (function () {
       const chatUrl = "{% url 'shots:ai_coach_chat' analysis.pk %}";
       const csrfToken = "{{ csrf_token }}";
+      const thread = document.getElementById('coach-thread');
+
+      // Conversation history sent to the server with every request
+      var history = [];
+
+      function appendBubble(role, text) {
+        var isUser = role === 'user';
+        var wrap = document.createElement('div');
+        wrap.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+        var bubble = document.createElement('div');
+        bubble.className = isUser
+          ? 'max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm bg-indigo-600 text-white'
+          : 'max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm bg-gray-100 text-gray-800';
+        bubble.textContent = text;
+        wrap.appendChild(bubble);
+        thread.appendChild(wrap);
+        thread.scrollTop = thread.scrollHeight;
+      }
 
       function askCoach(question) {
-        if (!question.trim()) return;
-        document.getElementById('coach-response').classList.add('hidden');
+        question = question.trim();
+        if (!question) return;
+
+        document.getElementById('coach-question').value = '';
+        appendBubble('user', question);
         document.getElementById('coach-loading').classList.remove('hidden');
         document.getElementById('coach-ask-btn').disabled = true;
 
         fetch(chatUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-          body: JSON.stringify({ question: question.trim() }),
+          body: JSON.stringify({ question: question, history: history }),
         })
-          .then(r => r.json())
-          .then(data => {
-            document.getElementById('coach-response-text').textContent =
-              data.answer || data.error || 'No response received.';
-            document.getElementById('coach-response').classList.remove('hidden');
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var answer = data.answer || data.error || 'No response received.';
+            appendBubble('assistant', answer);
+            // Append to history so next message has full context
+            history.push({ role: 'user', content: question });
+            history.push({ role: 'assistant', content: answer });
           })
-          .catch(() => {
-            document.getElementById('coach-response-text').textContent =
-              'Could not connect to the AI coach. Please try again.';
-            document.getElementById('coach-response').classList.remove('hidden');
+          .catch(function() {
+            appendBubble('assistant', 'Could not connect to the AI coach. Please try again.');
           })
-          .finally(() => {
+          .finally(function() {
             document.getElementById('coach-loading').classList.add('hidden');
             document.getElementById('coach-ask-btn').disabled = false;
           });
@@ -451,11 +464,9 @@
 
       document.querySelectorAll('.coach-chip').forEach(function (chip) {
         chip.addEventListener('click', function () {
-          document.getElementById('coach-question').value = this.textContent.trim();
           askCoach(this.textContent.trim());
         });
       });
-
     })();
     </script>
     {% endif %}

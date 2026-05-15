@@ -2546,6 +2546,9 @@ def ai_coach_chat(request, pk):
     try:
         body = _json.loads(request.body)
         question = (body.get('question') or '').strip()
+        history = body.get('history') or []
+        if not isinstance(history, list):
+            history = []
     except Exception:
         return JsonResponse({'error': 'Invalid JSON body'}, status=400)
 
@@ -2557,7 +2560,7 @@ def ai_coach_chat(request, pk):
 
     try:
         from .ai.chat_agent import answer_question
-        answer = answer_question(question, sa.pk, request.user.pk)
+        answer = answer_question(question, sa.pk, request.user.pk, history=history)
         return JsonResponse({'answer': answer})
     except Exception:
         logger.exception('ai_coach_chat: unexpected error for analysis %s', pk)

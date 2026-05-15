@@ -21,7 +21,7 @@ from .prompt_builder import build_coaching_prompt, build_system_prompt
 logger = logging.getLogger(__name__)
 
 # Model to use; can be overridden via OPENAI_COACH_MODEL env var.
-_DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_MODEL = "gpt-4o"
 
 # Fallback response returned when the API call fails so that the background
 # task can still complete without crashing the entire pipeline.
