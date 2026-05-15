@@ -285,14 +285,6 @@ def render_pose_wireframe(input_path: str,
                     if pt_prev and pt:
                         cv2.line(overlay, pt_prev, pt, col, int(2 + 2*alpha), lineType=cv2.LINE_AA)
 
-        # DEBUG: draw a solid bright-yellow 120x120 rectangle in top-left of EVERY frame
-        # so we can confirm the render pipeline is working end-to-end.
-        # Remove once confirmed visible.
-        try:
-            cv2.rectangle(overlay, (10, 10), (130, 130), (0, 255, 255), -1)  # filled yellow (BGR)
-        except Exception:
-            pass
-
         # Blend overlay onto frame with alpha transparency so underlying video remains visible
         try:
             alpha = 0.85  # overlay opacity — higher value keeps skeleton clearly visible
