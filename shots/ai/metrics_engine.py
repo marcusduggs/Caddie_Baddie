@@ -148,6 +148,7 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     FRAME_STEP = 2
+    MAX_WIDTH = 640  # resize before MediaPipe — pose detection doesn't need full resolution
     all_frames: List[List[Dict]] = []
     last_lms: Optional[List[Dict]] = None
     frame_idx = 0
@@ -180,6 +181,9 @@ def _extract_landmark_frames(video_path: str) -> List[List[Dict]]:
             if not ret:
                 break
             if frame_idx % FRAME_STEP == 0:
+                h, w = frame.shape[:2]
+                if w > MAX_WIDTH:
+                    frame = cv2.resize(frame, (MAX_WIDTH, int(h * MAX_WIDTH / w)), interpolation=cv2.INTER_AREA)
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = _MpImage(image_format=_MpImageFormat.SRGB, data=rgb)
                 timestamp_ms = int(frame_idx * 1000.0 / fps)
