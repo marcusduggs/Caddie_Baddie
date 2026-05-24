@@ -59,7 +59,8 @@ INSTALLED_APPS = [
 # Run the worker with: python manage.py qcluster
 Q_CLUSTER = {
     'name': 'caddie_baddie',
-    'workers': int(os.environ.get('Q_WORKERS', '2')),
+    'workers': int(os.environ.get('Q_WORKERS', '1')),
+    'recycle': 1,          # restart worker after each task — releases mediapipe/cv2 memory
     'timeout': 900,        # 15 min hard limit per task (long videos need time)
     'retry': 1080,         # re-queue if not acknowledged within 18 min
     'queue_limit': 50,     # don't pile up more than 50 pending tasks
