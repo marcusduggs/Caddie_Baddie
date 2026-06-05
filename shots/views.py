@@ -2482,18 +2482,24 @@ def fetch_hole_info(course_name, hole, preferred_tee=None):
 
                 # Lists: iterate and try to match index or recurse
                 if isinstance(obj, list):
-                    # If it's a list of hole dicts indexed by hole number
+                    # Only treat as a hole list if items look like hole data (have par/yardage),
+                    # not course objects (which have club_name/tees).
+                    hole_keys = {'yardage', 'yards', 'length', 'par', 'handicap', 'hcp'}
+                    course_keys = {'club_name', 'tees', 'course_name'}
                     if len(obj) > 0 and all(isinstance(it, dict) for it in obj):
-                        try:
-                            idx = int(hole_num) - 1
-                            if 0 <= idx < len(obj):
-                                he = obj[idx]
-                                y = he.get('yardage') or he.get('yards') or he.get('length')
-                                p = he.get('par') or he.get('par_value') or he.get('par_total')
-                                hc = he.get('handicap') or he.get('hcp') or he.get('stroke_index')
-                                return (y, p, hc, None)
-                        except Exception:
-                            pass
+                        looks_like_holes = any(hole_keys & set(obj[0].keys()))
+                        looks_like_courses = any(course_keys & set(obj[0].keys()))
+                        if looks_like_holes and not looks_like_courses:
+                            try:
+                                idx = int(hole_num) - 1
+                                if 0 <= idx < len(obj):
+                                    he = obj[idx]
+                                    y = he.get('yardage') or he.get('yards') or he.get('length')
+                                    p = he.get('par') or he.get('par_value') or he.get('par_total')
+                                    hc = he.get('handicap') or he.get('hcp') or he.get('stroke_index')
+                                    return (y, p, hc, None)
+                            except Exception:
+                                pass
                     for item in obj:
                         res = _extract(item, hole_num, preferred_tee)
                         if res is not None:
