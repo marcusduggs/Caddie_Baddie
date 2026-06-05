@@ -8,8 +8,12 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.contrib import messages
 
+import logging
+
 from .forms import CustomUserCreationForm, EmailAuthenticationForm
 from .models import CustomUser, EmailVerificationToken
+
+logger = logging.getLogger(__name__)
 
 
 # ── Email helper ────────────────────────────────────────────────────────────
@@ -25,10 +29,12 @@ def _send_verification_email(request, user):
         'verify_url': verify_url,
     })
     try:
+        from django.conf import settings as _settings
+        logger.info('Sending verification email to %s via backend %s', user.email, _settings.EMAIL_BACKEND)
         send_mail(subject, body, None, [user.email], fail_silently=False)
+        logger.info('Verification email sent successfully to %s', user.email)
     except Exception:
-        # Don't block the user experience if email delivery fails
-        pass
+        logger.exception('Failed to send verification email to %s', user.email)
 
 
 # ── Auth views ──────────────────────────────────────────────────────────────
