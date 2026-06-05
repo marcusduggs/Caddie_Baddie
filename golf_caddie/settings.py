@@ -182,7 +182,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('AWS_SES_SMTP_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('AWS_SES_SMTP_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@caddiebadie.com')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@caddiebaddie.golf')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Use console backend locally when SES credentials are not set
