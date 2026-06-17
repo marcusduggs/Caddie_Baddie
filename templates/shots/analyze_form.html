@@ -1,0 +1,983 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-4xl mx-auto p-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-semibold">Upload Swing Video</h2>
+      <div>
+        <a href="{% url 'shots:courses_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 text-sm font-medium">View Courses</a>
+      </div>
+    </div>
+    
+
+    {# Server-side debug info when form re-rendered after POST #}
+    {% if form_errors %}
+      <div class="mb-4 p-4 rounded-lg bg-yellow-50 text-yellow-800">
+        <strong>Server-side form errors:</strong>
+        <div class="mt-2 text-sm">{{ form_errors }}</div>
+      </div>
+    {% endif %}
+
+    {% if posted_keys %}
+      <div class="mb-4 p-2 rounded bg-gray-50 text-gray-700 text-xs">
+        <strong>Posted keys:</strong>
+        <div class="mt-1">{{ posted_keys }}</div>
+      </div>
+    {% endif %}
+
+  <!-- Debug UI removed -->
+    
+  <!-- Upload Form -->
+  <form id="analyze-upload-form" method="post" action="{% url 'shots:analyze_upload' %}" enctype="multipart/form-data" class="bg-white p-4 rounded shadow mb-6">
+      {% csrf_token %}
+
+  <!-- Round selection (existing only) -->
+      <div class="max-w-2xl mx-auto mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">🎯 Round</label>
+
+        <div id="existing-round-mode">
+          <select name="round_id" id="round-select" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2 mb-2">
+            <option value="">Choose existing round</option>
+            {% for r in rounds %}
+              <option value="{{ r.pk }}" data-course="{{ r.course_name|default:'' }}" data-hole="{{ r.hole_number|default:'' }}" data-selected-tee="{{ r.selected_tee|default:'' }}" {% if selected_round_id and selected_round_id|stringformat:'s' == r.pk|stringformat:'s' %}selected{% endif %}>{{ r }}{% if r.course_name %} — {{ r.course_name }}{% endif %}</option>
+            {% empty %}
+              <!-- no existing rounds -->
+            {% endfor %}
+          </select>
+          <p class="mt-1 text-sm text-gray-500">Attach uploads to an existing round.</p>
+          <div id="selected-round-display" class="mt-2 text-sm text-gray-700 hidden"></div>
+        </div>
+      </div>
+      
+      <div class="space-y-4">
+  <!-- Removed global Club and Distance inputs: per-file controls appear after selecting files -->
+        
+        <!-- Course name (optional) -->
+        <div>
+          {% if fixed_course %}
+            {# Prefill the course input but keep it editable (no lock) #}
+            <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
+              🏟️ Course (pre-filled)
+            </label>
+            <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" value="{% if fixed_course_obj %}{{ fixed_course_obj.name }}{% elif fixed_course_name %}{{ fixed_course_name }}{% else %}{% endif %}" />
+            <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
+            <div class="mt-2">
+              <span class="inline-flex items-center gap-2 px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">Pre-filled from course context</span>
+            </div>
+            <div id="course-suggestions" class="mt-1 relative"></div>
+            <p class="mt-1 text-sm text-gray-500">Provide a course name to overlay the course and hole yardage.</p>
+          {% else %}
+            <label for="id_course" class="block text-sm font-medium text-gray-700 mb-2">
+              🏟️ Course
+            </label>
+            <input type="text" name="course" id="id_course" maxlength="200" placeholder="Course name, e.g. Pebble Beach" aria-autocomplete="list" autocomplete="off" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" value="{% if initial_course %}{{ initial_course|escape }}{% endif %}" />
+            <input type="hidden" name="suggested_course_id" id="id_suggested_course_id" value="" />
+            <div id="course-suggestions" class="mt-1 relative"></div>
+            <p class="mt-1 text-sm text-gray-500">Provide a course name to overlay the course and hole yardage.</p>
+          {% endif %}
+        </div>
+
+        <!-- Hole number (optional) -->
+        <div>
+          <label for="id_hole" class="block text-sm font-medium text-gray-700 mb-2">
+            ⛳ Hole
+          </label>
+          <input type="number" name="hole" id="id_hole" min="1" max="18" placeholder="Hole number (1-18)" class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2" />
+        </div>
+
+        <!-- Tee selection (required) -->
+        <div>
+          <label for="id_selected_tee" class="block text-sm font-medium text-gray-700 mb-2">
+            🏷️ Preferred Tee
+          </label>
+          <select name="selected_tee" id="id_selected_tee" required class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg p-2">
+                <option value="">Select a preferred tee</option>
+                <!-- Server-side prefetched tee options (fallback) -->
+                {% if prefetched_tee_names %}
+                  {% for tn in prefetched_tee_names %}
+                    <option value="{{ tn|escape }}">{{ tn }}</option>
+                  {% endfor %}
+                {% endif %}
+          </select>
+          <div id="round-tee-locked" class="mt-2 text-sm text-gray-600 hidden">Round tee locked: <span id="round-tee-val"></span></div>
+            <div class="mt-2 flex items-center gap-3">
+              <p id="tee-status" class="text-sm text-gray-500">Tee options not loaded.</p>
+            </div>
+            <!-- Overlays are not selectable at upload; add them later on the shot detail page -->
+          <p class="mt-1 text-sm text-gray-500">Pick a tee set — required before uploading so yardages and overlays are accurate.</p>
+        </div>
+        
+        <!-- Video Upload -->
+        <div>
+          <div id="round-warning" class="mb-2 text-sm text-red-600 hidden">Please select an existing round or create a new round before uploading videos.</div>
+          <label for="{{ form.input_video.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+            🎥 Video File
+          </label>
+          <input 
+            type="file" 
+            name="input_video" 
+            id="{{ form.input_video.id_for_label }}"
+            accept="video/*,video/mp4,video/quicktime"
+            required
+            multiple
+            class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-2"
+            onchange="handleFileSelect(this)"
+          >
+          <p class="mt-2 text-sm text-gray-500">📱 Choose from camera roll or record new video</p>
+          <!-- overlay option moved above file input so all options are grouped together -->
+          <p id="file-info" class="mt-2 text-sm text-blue-600 hidden"></p>
+          <p class="mt-2 text-sm text-gray-500">Files will be ordered by capture time; per-file club/distance stay attached to the file you selected.</p>
+          <div id="per-file-meta" class="mt-4 space-y-3"></div>
+          {% if form.input_video.errors %}
+            <p class="mt-1 text-sm text-red-600">{{ form.input_video.errors.0 }}</p>
+          {% endif %}
+        </div>
+      </div>
+      
+      <!-- Submit Button -->
+      <div class="mt-6">
+        <button 
+          type="submit" 
+          id="submit-btn"
+          class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 text-lg"
+        >
+          🚀 Analyze Shot
+        </button>
+        <div id="upload-progress" class="hidden mt-4">
+          <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
+            <strong class="font-bold">📤 Uploading directly to S3...</strong>
+            <span class="block mt-1" id="upload-progress-text">Preparing…</span>
+            <p class="text-xs mt-2 text-blue-600">Large iPhone videos may take several minutes. Do not close this tab.</p>
+          </div>
+        </div>
+      </div>
+    </form>
+    
+    <!-- Processed Video Display -->
+    {% if video_url %}
+      <div class="bg-white p-4 rounded shadow">
+        <h3 class="text-xl font-semibold mb-4">Processed Video</h3>
+        <video 
+          controls 
+          playsinline
+          class="w-full rounded shadow"
+          preload="metadata"
+        >
+          <source src="{{ video_url }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    {% endif %}
+    
+    <!-- Navigation -->
+    <div class="mt-6 text-center">
+        <div class="flex items-center justify-center gap-6">
+        <a href="{% url 'shots:shot_list' %}" class="text-blue-600 hover:text-blue-800 font-medium">← Back to All Shots</a>
+        <a href="{% url 'shots:courses_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 text-sm font-medium">View Courses</a>
+      </div>
+    </div>
+  </div>
+  
+  <style>
+    /* Mobile-optimized form styling */
+    select, input[type="number"], input[type="file"] {
+      font-size: 16px !important; /* Prevent iOS zoom */
+      padding: 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      width: 100%;
+    }
+    
+    select:focus, input:focus {
+      outline: none;
+      border-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    }
+    
+    /* Better file input on mobile */
+    input[type="file"]::file-selector-button {
+      background-color: #10b981;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-weight: 500;
+      margin-right: 1rem;
+    }
+    
+    input[type="file"]::file-selector-button:hover {
+      background-color: #059669;
+    }
+    /* Toggle buttons for round mode */
+    .toggle-btn {
+      cursor: pointer;
+    }
+    .toggle-btn[aria-pressed="true"] {
+      box-shadow: 0 2px 6px rgba(16,185,129,0.15);
+    }
+  </style>
+  
+  <script>
+  // If this page was rendered for a fixed course, prevent JS from overwriting it
+  window.FIXED_COURSE = "{{ fixed_course|default:False|yesno:'true,false' }}" === 'true';
+  window.FIXED_COURSE_NAME = "{{ fixed_course_obj.name|default:''|escapejs }}";
+    // Small global helper to escape HTML when rendering filenames in innerHTML
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]; });
+    }
+
+    // Show file information when selected
+    function handleFileSelect(input) {
+      const fileInfo = document.getElementById('file-info');
+      const metaContainer = document.getElementById('per-file-meta');
+      metaContainer.innerHTML = '';
+      if (input.files && input.files.length) {
+        const files = Array.from(input.files);
+        const list = files.map(f => `${f.name} (${(f.size/(1024*1024)).toFixed(2)} MB)`);
+        if (list.length === 1) {
+          fileInfo.textContent = `✅ Selected: ${list[0]}`;
+        } else {
+          fileInfo.textContent = `✅ ${list.length} files selected`;
+        }
+        fileInfo.classList.remove('hidden');
+
+        // Sort files by lastModified (capture time) ascending so earliest appears first as Shot 1
+        // Keep originalIndex to preserve server-side mapping (club_0, distance_0 refer to original selection order)
+        const filesWithIndex = files.map((f, i) => ({ file: f, originalIndex: i, lastModified: f.lastModified || 0 }));
+        filesWithIndex.sort((a, b) => (a.lastModified - b.lastModified) || (a.originalIndex - b.originalIndex));
+
+        // For each file in sorted order, render club and distance inputs; name inputs using the ORIGINAL index
+          filesWithIndex.forEach((entry, displayIndex) => {
+          const f = entry.file;
+          const i = entry.originalIndex;
+          const wrapper = document.createElement('div');
+          wrapper.className = 'bg-gray-50 p-3 rounded border border-gray-200';
+          // We'll attempt to extract creation_time from MP4/QuickTime atoms for greater accuracy
+          // Fallback recorded date using lastModified
+          const fallback = f.lastModified ? new Date(f.lastModified) : null;
+
+          // No embedded-time parsing — we only display the file's lastModified (labeled as Time Uploaded)
+          wrapper.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium text-gray-800">Shot ${displayIndex+1}: ${escapeHtml(f.name)}</div>
+        <div class="text-xs text-gray-500 mt-1 file-mtime">Time Uploaded: ${fallback ? fallback.toLocaleString() : 'Unknown'}</div>
+              </div>
+              <div class="text-xs text-gray-500">${(f.size/(1024*1024)).toFixed(2)} MB</div>
+            </div>
+            <div class="mt-2 grid grid-cols-1 sm:grid-cols-1 gap-3">
+              <div>
+                <p class="text-xs text-gray-600">Club can be selected later on the shot detail page.</p>
+              </div>
+            </div>
+            <input type="hidden" name="upload_time_${i}" value="${fallback ? new Date(f.lastModified).toISOString() : new Date().toISOString()}" />
+            <input type="hidden" name="stroke_number_${i}" value="${displayIndex+1}" />
+          `;
+          metaContainer.appendChild(wrapper);
+
+          // nothing async to update; file lastModified was set at panel render time
+        });
+      } else {
+        fileInfo.classList.add('hidden');
+      }
+    }
+    
+    // Show upload progress when form is submitted
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.getElementById('analyze-upload-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const progressDiv = document.getElementById('upload-progress');
+
+      // Disable file input until a round is selected or a new round name is provided
+      const fileInput = document.getElementById('{{ form.input_video.id_for_label }}');
+          function updateFileInputState() {
+        try {
+          const roundSel = document.querySelector('select[name="round_id"]');
+          const newRnd = document.querySelector('input[name="new_round_name"]');
+          const teeSel = document.querySelector('select[name="selected_tee"]');
+          // require a round/new round before enabling file input; tee may be selected later
+          const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
+          const enabled = hasRound;
+          if (fileInput) {
+            if (enabled) { fileInput.removeAttribute('disabled'); }
+            else { fileInput.setAttribute('disabled','disabled'); }
+          }
+        } catch (e) {}
+      }
+      // Initialize state
+      updateFileInputState();
+      // Attach listeners to toggle state
+      try {
+        const roundSelEl = document.querySelector('select[name="round_id"]');
+        const newRndEl = document.querySelector('input[name="new_round_name"]');
+  const teeSelEl = document.querySelector('select[name="selected_tee"]');
+  if (roundSelEl) roundSelEl.addEventListener('change', updateFileInputState);
+  if (newRndEl) newRndEl.addEventListener('input', updateFileInputState);
+  if (teeSelEl) teeSelEl.addEventListener('change', updateFileInputState);
+      } catch (e) {}
+      
+      // ── Direct S3 upload submit handler ────────────────────────────────────
+      // Uploads videos directly from the browser to S3 (bypasses Render) to
+      // avoid SSL connection timeouts on large multi-file uploads.
+      // Falls back to normal multipart POST when S3 is not configured (local dev).
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        // Validate required fields first
+        try {
+          const roundSel = document.querySelector('select[name="round_id"]');
+          const newRnd = document.querySelector('input[name="new_round_name"]');
+          const holeInput = document.querySelector('input[name="hole"]');
+          const teeSel = document.querySelector('select[name="selected_tee"]');
+          const hasRound = (roundSel && roundSel.value) || (newRnd && newRnd.value && newRnd.value.trim());
+          if (!hasRound) {
+            const warn = document.getElementById('round-warning');
+            if (warn) warn.classList.remove('hidden');
+            alert('Please choose an existing round or create a new round before uploading.');
+            return;
+          }
+          const holeVal = holeInput && holeInput.value && holeInput.value.trim();
+          if (!holeVal) {
+            alert('Please enter a Hole number before uploading.');
+            return;
+          }
+          if (!teeSel || !teeSel.value) {
+            alert('Please select a Preferred Tee before uploading.');
+            return;
+          }
+        } catch (er) { console.error(er); }
+
+        const fileInput = document.getElementById('{{ form.input_video.id_for_label }}');
+        const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+        if (!files.length) {
+          alert('Please select at least one video file.');
+          return;
+        }
+
+        // Collect form metadata
+        function formVal(name) {
+          const el = document.querySelector('[name="' + name + '"]');
+          return el ? el.value : '';
+        }
+        const roundId = formVal('round_id');
+        const hole = formVal('hole');
+        const selectedTee = formVal('selected_tee');
+        const course = formVal('course');
+        const overlayPose = !!document.querySelector('[name="overlay_pose"]:checked');
+        const csrfToken = formVal('csrfmiddlewaretoken');
+
+        // Disable submit and show progress
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Uploading...';
+        submitBtn.classList.remove('hover:bg-green-700');
+        submitBtn.classList.add('bg-gray-400');
+        progressDiv.classList.remove('hidden');
+
+        function updateProgress(msg) {
+          const el = document.getElementById('upload-progress-text');
+          if (el) el.textContent = msg;
+        }
+
+        // Sort files by lastModified so stroke_number reflects capture order
+        const filesWithIndex = files.map((f, i) => ({ file: f, originalIndex: i }));
+        filesWithIndex.sort((a, b) => (a.file.lastModified - b.file.lastModified) || (a.originalIndex - b.originalIndex));
+
+        function showUploadError(msg) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '🚀 Analyze Shot';
+          submitBtn.classList.add('hover:bg-green-700');
+          submitBtn.classList.remove('bg-gray-400');
+          updateProgress('❌ ' + msg);
+          progressDiv.querySelector('strong').textContent = '⚠️ Upload failed';
+        }
+
+        async function doDirectUpload() {
+          // Step 1: request presigned PUT URLs from Django
+          updateProgress('Requesting upload slots…');
+          console.log('[S3Upload] Step 1: requesting presigned URLs');
+          let urlResp;
+          try {
+            urlResp = await fetch('{% url "shots:request_upload_urls" %}', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+              },
+              body: JSON.stringify({
+                files: filesWithIndex.map(e => ({ name: e.file.name, type: e.file.type || 'video/mp4' }))
+              }),
+            });
+          } catch (netErr) {
+            console.error('[S3Upload] fetch request_upload_urls failed:', netErr);
+            showUploadError('Network error reaching server. Check your internet and try again.');
+            return;
+          }
+
+          console.log('[S3Upload] request_upload_urls HTTP status:', urlResp.status);
+          if (!urlResp.ok) {
+            const errText = await urlResp.text().catch(function() { return '(no body)'; });
+            console.error('[S3Upload] request_upload_urls non-OK response:', errText);
+            showUploadError('Server error (' + urlResp.status + ') preparing upload. See console for details.');
+            return;
+          }
+
+          let urlData;
+          try { urlData = await urlResp.json(); } catch(e) {
+            console.error('[S3Upload] Could not parse response as JSON:', e);
+            showUploadError('Unexpected server response. See console for details.');
+            return;
+          }
+
+          console.log('[S3Upload] urlData:', JSON.stringify(urlData));
+
+          if (!urlData.s3_available) {
+            console.warn('[S3Upload] s3_available is false — S3 not configured on this server');
+            showUploadError('Direct S3 upload not available. Contact support.');
+            return;
+          }
+          if (urlData.error || !urlData.urls || !urlData.urls.length) {
+            console.error('[S3Upload] request_upload_urls returned error:', urlData);
+            showUploadError('Could not prepare upload slots: ' + (urlData.error || 'unknown error'));
+            return;
+          }
+
+          const uploadSlots = urlData.urls;  // [{upload_url, s3_key, original_name}]
+
+          // Upload a single file to S3 via XHR so we get progress events
+          function uploadFileToS3(file, uploadUrl, label) {
+            return new Promise(function(resolve, reject) {
+              const xhr = new XMLHttpRequest();
+              xhr.open('PUT', uploadUrl);
+              xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+              xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                  const pct = Math.round(e.loaded / e.total * 100);
+                  const mb = (e.loaded / (1024 * 1024)).toFixed(1);
+                  const total = (e.total / (1024 * 1024)).toFixed(1);
+                  updateProgress(label + ' — ' + pct + '% (' + mb + ' / ' + total + ' MB)');
+                }
+              });
+              xhr.addEventListener('load', function() {
+                if (xhr.status >= 200 && xhr.status < 300) { resolve(); }
+                else { reject(new Error('S3 PUT returned ' + xhr.status)); }
+              });
+              xhr.addEventListener('error', function() { reject(new Error('Network error during S3 upload')); });
+              xhr.send(file);
+            });
+          }
+
+          // Step 2: upload each file directly to S3 with real progress
+          const s3Keys = [];
+          for (let i = 0; i < filesWithIndex.length; i++) {
+            const { file, originalIndex } = filesWithIndex[i];
+            const slot = uploadSlots[i];
+            if (!slot) continue;
+            const label = 'Uploading video ' + (i + 1) + ' of ' + filesWithIndex.length + ': ' + file.name;
+            updateProgress(label + ' — 0%');
+            try {
+              await uploadFileToS3(file, slot.upload_url, label);
+              s3Keys.push({ s3_key: slot.s3_key, original_name: file.name, stroke_number: i + 1 });
+              console.log('[S3Upload] video ' + (i+1) + ' uploaded OK, key:', slot.s3_key);
+            } catch (putErr) {
+              console.error('[S3Upload] S3 PUT failed for', file.name, putErr);
+              showUploadError('S3 upload failed for ' + file.name + ': ' + putErr.message + '. Check CORS policy and console.');
+              return;
+            }
+          }
+
+          // Step 3: tell Django to create ShotAnalysis records from the uploaded keys
+          updateProgress('Saving analyses…');
+          let createResp;
+          try {
+            createResp = await fetch('{% url "shots:create_analyses_from_s3_keys" %}', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+              },
+              body: JSON.stringify({
+                s3_keys: s3Keys,
+                round_id: roundId,
+                hole: hole,
+                selected_tee: selectedTee,
+                course: course,
+                overlay_pose: overlayPose,
+              }),
+            });
+          } catch (netErr) {
+            console.error('create_analyses_from_s3_keys network error:', netErr);
+            updateProgress('Server error saving analyses. Please refresh and try again.');
+            return;
+          }
+
+          let createData;
+          try { createData = await createResp.json(); } catch(e) { createData = {}; }
+
+          if (createData.redirect_url) {
+            updateProgress('Done! Redirecting…');
+            window.location.href = createData.redirect_url;
+          } else {
+            console.error('create_analyses_from_s3_keys error:', createData);
+            updateProgress('Analyses queued. Redirecting to your shots…');
+            setTimeout(function() { window.location.href = '{% url "shots:shot_list" %}'; }, 2000);
+          }
+        }
+
+        doDirectUpload().catch(function(err) {
+          console.error('[S3Upload] Unhandled error in doDirectUpload:', err);
+          showUploadError('Unexpected error: ' + err.message + '. See console (F12) for details.');
+        });
+      });
+
+      // Selected round display logic
+      const roundSelect = document.querySelector('select[name="round_id"]');
+      const selectedDisplay = document.getElementById('selected-round-display');
+
+      function refreshSelectedRound() {
+        let text = '';
+        if (roundSelect && roundSelect.value) {
+          const opt = roundSelect.options[roundSelect.selectedIndex];
+          text = `Selected round: ${opt.text}`;
+        }
+        if (text) {
+          selectedDisplay.textContent = text;
+          selectedDisplay.classList.remove('hidden');
+        } else {
+          selectedDisplay.textContent = '';
+          selectedDisplay.classList.add('hidden');
+        }
+        // If a round is selected, lock the course input and the round select
+        try {
+          const opt = roundSelect && roundSelect.options[roundSelect.selectedIndex];
+          const courseInput = document.querySelector('input[name="course"]');
+          if (opt && opt.value) {
+            if (courseInput) courseInput.setAttribute('disabled', 'disabled');
+            // Ensure a saved tee on the round is applied and locked
+            try {
+              const teeSel = document.getElementById('id_selected_tee');
+              const lockedDiv = document.getElementById('round-tee-locked');
+              const teeValSpan = document.getElementById('round-tee-val');
+              const selT = opt.dataset.selectedTee || '';
+              if (teeSel) {
+                  if (selT) {
+                  let found = false;
+                  for (let i=0;i<teeSel.options.length;i++) { if (teeSel.options[i].value === selT) { found = true; break; } }
+                  if (!found) {
+                    const o = document.createElement('option'); o.value = selT; o.text = selT; teeSel.appendChild(o);
+                  }
+                  teeSel.value = selT;
+                  teeSel.disabled = true;
+                  // Ensure value is submitted even when select is disabled by adding a hidden input named 'selected_tee'
+                  try {
+                    let hidden = document.getElementById('id_selected_tee_hidden');
+                    if (!hidden) {
+                      hidden = document.createElement('input');
+                      hidden.type = 'hidden';
+                      hidden.name = 'selected_tee';
+                      hidden.id = 'id_selected_tee_hidden';
+                      teeSel.parentNode.insertBefore(hidden, teeSel.nextSibling);
+                    }
+                    hidden.value = selT;
+                  } catch(e) { console.error(e); }
+                  if (lockedDiv && teeValSpan) { teeValSpan.textContent = selT; lockedDiv.classList.remove('hidden'); }
+                } else {
+                  teeSel.disabled = false;
+                  // Remove the hidden input when tee select is unlocked so form posts the select value normally
+                  try { const hidden = document.getElementById('id_selected_tee_hidden'); if (hidden) hidden.remove(); } catch(e) {}
+                  if (lockedDiv) lockedDiv.classList.add('hidden');
+                }
+              }
+            } catch (e) {}
+            try {
+              // disable the visible select so user cannot change it
+              roundSelect.setAttribute('disabled', 'disabled');
+              // ensure the round value is still submitted by adding a hidden input named 'round_id'
+              try {
+                let hidden = document.getElementById('id_round_id_hidden');
+                if (!hidden) {
+                  hidden = document.createElement('input');
+                  hidden.type = 'hidden';
+                  hidden.name = 'round_id';
+                  hidden.id = 'id_round_id_hidden';
+                  roundSelect.parentNode.insertBefore(hidden, roundSelect.nextSibling);
+                }
+                hidden.value = opt.value;
+              } catch (e) { console.error(e); }
+            } catch(e) {}
+          } else {
+            if (courseInput) courseInput.removeAttribute('disabled');
+            try { const teeSel = document.getElementById('id_selected_tee'); if (teeSel) teeSel.disabled = false; } catch(e) {}
+            // Remove hidden round_id when unlocked so the select posts normally
+            try { const hidden = document.getElementById('id_round_id_hidden'); if (hidden) hidden.remove(); } catch(e) {}
+          }
+        } catch (e) {}
+      }
+
+      if (roundSelect) {
+        roundSelect.addEventListener('change', refreshSelectedRound);
+      }
+      // initialize
+      refreshSelectedRound();
+
+        // Prefill from URL params (so round/hole links can preselect on navigation)
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const rid = params.get('round_id');
+          const holeParam = params.get('hole');
+          const courseParam = params.get('course');
+          if (rid && roundSelect) {
+            for (let i=0;i<roundSelect.options.length;i++){
+              if (roundSelect.options[i].value === rid) { roundSelect.selectedIndex = i; break; }
+            }
+            // Dispatch change so the prefill and tee-lock logic runs
+            try { roundSelect.dispatchEvent(new Event('change', { bubbles: true })); } catch(e){}
+          }
+          if (holeParam) {
+            const holeInput = document.querySelector('input[name="hole"]');
+            if (holeInput) holeInput.value = holeParam;
+          }
+          // If the link included a course name, prefill the course input as well.
+          if (courseParam) {
+            try {
+              const courseInput = document.querySelector('input[name="course"]');
+              if (courseInput && courseParam) courseInput.value = courseParam;
+            } catch (e) {}
+          }
+          refreshSelectedRound();
+        } catch (e) {
+          // ignore URL parse errors
+        }
+
+  // No modal button for creating rounds — inline inputs are used instead
+    });
+
+    // Course name autocomplete + confirm modal
+    (function() {
+      const input = document.getElementById('id_course');
+      const suggestionsContainer = document.getElementById('course-suggestions');
+      const hiddenId = document.getElementById('id_suggested_course_id');
+
+      function debounce(fn, wait) {
+        let t = null;
+        return function(...args) {
+          clearTimeout(t);
+          t = setTimeout(() => fn.apply(this, args), wait);
+        };
+      }
+
+      function clearSuggestions() {
+        suggestionsContainer.innerHTML = '';
+      }
+
+      function renderSuggestions(list) {
+        clearSuggestions();
+        if (!list || !list.length) return;
+
+        const ul = document.createElement('ul');
+        ul.className = 'absolute z-50 left-0 right-0 bg-white border border-gray-200 rounded-md mt-1 max-h-60 overflow-auto shadow-lg';
+
+        list.forEach(item => {
+          const li = document.createElement('li');
+          li.className = 'px-3 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center';
+          li.innerHTML = `<span class="truncate">${escapeHtml(item.name)}</span> <span class="text-xs text-gray-500 ml-3">${item.score}%</span>`;
+          li.addEventListener('click', () => onSelectSuggestion(item));
+          ul.appendChild(li);
+        });
+
+        suggestionsContainer.appendChild(ul);
+      }
+
+      function escapeHtml(s) {
+        return (s || '').replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]; });
+      }
+
+      function onSelectSuggestion(item) {
+        // If score in medium range, ask user to confirm
+        const score = Number(item.score || 0);
+        if (score >= 70 && score < 95) {
+          showConfirmModal(item.name, () => applySuggestion(item));
+        } else {
+          applySuggestion(item);
+        }
+      }
+
+      function applySuggestion(item) {
+        input.value = item.name;
+        hiddenId.value = item.id || '';
+        clearSuggestions();
+        // After applying suggestion, try to populate tee options from the API raw payload if available
+        try {
+          if (item.raw) {
+            populateTeeOptionsFromPayload(item.raw);
+          } else if (item.id) {
+            // fetch full course JSON by name
+            fetchCourseAndPopulate(item.name);
+          }
+        } catch (e) {
+          // ignore failures
+        }
+      }
+
+      async function fetchSuggestions(q) {
+        try {
+          const url = new URL(window.location.origin + '{% url "shots:api_course_suggestions" %}');
+          url.searchParams.set('q', q);
+          const res = await fetch(url.toString(), { method: 'GET' });
+          if (!res.ok) return [];
+          const payload = await res.json();
+          return payload.suggestions || [];
+        } catch (e) {
+          // ignore errors silently
+          return [];
+        }
+      }
+
+    // Fetch full course JSON using the golf_course_search endpoint and populate tee options
+      async function fetchCourseAndPopulate(courseName) {
+        // Respect the user's opt-in choice for the map overlay. Skip fetch when disabled.
+        try {
+          const enabled = document.getElementById('id_include_map') && document.getElementById('id_include_map').checked;
+          if (!enabled) {
+            const status = document.getElementById('tee-status'); if (status) status.textContent = 'Map overlay disabled (enable to load tees).';
+            return;
+          }
+        } catch (e) {}
+      try {
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Loading tee options...';
+        const url = new URL(window.location.origin + '{% url "shots:api_golf_course" %}');
+        url.searchParams.set('course', courseName);
+        console.info('fetchCourseAndPopulate: fetching', url.toString());
+        const res = await fetch(url.toString(), { method: 'GET' });
+        if (!res.ok) {
+          console.warn('fetchCourseAndPopulate: non-OK response', res.status);
+          if (status) status.textContent = 'Failed to load tees (network).';
+          return;
+        }
+        const payload = await res.json();
+        // payload is {data: ...} per the API wrapper
+  const data = payload.data || payload;
+  // Expose the full payload to the debug pane for troubleshooting
+  try { if (window.__setTeePayloadDebug) window.__setTeePayloadDebug(payload); } catch(e){}
+  populateTeeOptionsFromPayload(data);
+        if (status) status.textContent = 'Tee options loaded.';
+      } catch (e) {
+        console.error('fetchCourseAndPopulate error', e);
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Failed to load tees.';
+      }
+    }
+
+    function populateTeeOptionsFromPayload(payload) {
+      try {
+        const teeSelect = document.getElementById('id_selected_tee');
+        if (!teeSelect) return;
+        // Collect tee names from payload. The payload may have a nested 'tees' structure.
+        const teeNames = new Set();
+        // Fast-path: handle payload shaped like { courses: [ { tees: { female: [...], male: [...] } } ] }
+        try {
+          if (payload && Array.isArray(payload.courses)) {
+            payload.courses.forEach(function(course) {
+              try {
+                if (course && course.tees && typeof course.tees === 'object') {
+                  Object.values(course.tees).forEach(function(teeList) {
+                    if (Array.isArray(teeList)) {
+                      teeList.forEach(function(tobj) {
+                        try {
+                          if (!tobj) return;
+                          if (tobj.tee_name) teeNames.add(tobj.tee_name);
+                          else if (tobj.teeName) teeNames.add(tobj.teeName);
+                          else if (tobj.name) teeNames.add(tobj.name);
+                        } catch (e) {}
+                      });
+                    }
+                  });
+                }
+              } catch (e) {}
+            });
+          }
+        } catch (e) {}
+        function collect(obj) {
+          if (!obj) return;
+          if (Array.isArray(obj)) {
+            obj.forEach(collect);
+            return;
+          }
+          if (typeof obj === 'object') {
+            // Direct well-known keys
+            if (obj.tee_name) teeNames.add(obj.tee_name);
+            if (obj.teeName) teeNames.add(obj.teeName);
+            if (obj.name && typeof obj.name === 'string' && obj.name.length < 60) {
+              // some APIs use 'name' on tee objects
+              teeNames.add(obj.name);
+            }
+            if (obj.title && typeof obj.title === 'string' && obj.title.length < 60) teeNames.add(obj.title);
+            if (obj.label && typeof obj.label === 'string' && obj.label.length < 60) teeNames.add(obj.label);
+
+            // Heuristic: scan string-valued fields whose key looks like it could be a tee label
+            for (const k of Object.keys(obj)) {
+              const v = obj[k];
+              if (typeof v === 'string' && /tee|name|label/i.test(k) && v.length < 80) {
+                teeNames.add(v);
+              }
+            }
+
+            // Recurse into common container shapes
+            for (const k of Object.keys(obj)) {
+              try {
+                const val = obj[k];
+                if (k === 'tees' && typeof val === 'object') {
+                  if (Array.isArray(val)) collect(val);
+                  else if (typeof val === 'object') Object.values(val).forEach(collect);
+                  continue;
+                }
+                if (Array.isArray(val)) collect(val);
+                else if (typeof val === 'object') collect(val);
+              } catch (e) {}
+            }
+          }
+        }
+        collect(payload);
+        // If no tees found, try to inspect top-level 'tees' or 'data.courses' shapes
+        if (teeNames.size === 0) {
+          try {
+            if (payload.courses && Array.isArray(payload.courses)) {
+              payload.courses.forEach(c => collect(c));
+            } else if (payload.data && payload.data.courses && Array.isArray(payload.data.courses)) {
+              payload.data.courses.forEach(c => collect(c));
+            }
+          } catch (e) {}
+        }
+
+        // If still empty, provide a short debug summary of top-level keys to the debug pane
+        if (teeNames.size === 0) {
+          try {
+            const topKeys = Object.keys(payload || {}).slice(0,20);
+            if (window.__setTeePayloadDebug) window.__setTeePayloadDebug({top_keys: topKeys, sample: payload});
+          } catch (e) {}
+        }
+        // Build options preserving an 'Any' first option only if we found tees.
+        const oldVal = teeSelect.value;
+        if (teeNames.size > 0) {
+          teeSelect.innerHTML = '';
+          const optAny = document.createElement('option');
+          optAny.value = '';
+          optAny.textContent = 'Any';
+          teeSelect.appendChild(optAny);
+          Array.from(teeNames).sort().forEach(name => {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = name;
+            teeSelect.appendChild(o);
+          });
+          // Restore previous value if still present
+          try { teeSelect.value = oldVal; } catch(e){}
+          console.info('populateTeeOptionsFromPayload: found tees', Array.from(teeNames));
+          const status = document.getElementById('tee-status');
+          if (status) {
+            status.textContent = `${teeNames.size} tee(s) available`;
+          }
+        } else {
+          // Do not remove any server-rendered options; notify user we found no tees
+          console.info('populateTeeOptionsFromPayload: no tees found in payload, keeping existing options');
+          const status = document.getElementById('tee-status');
+          if (status) status.textContent = 'No tees found in API response (kept existing options).';
+        }
+      } catch (e) {
+        console.error('populateTeeOptionsFromPayload error', e);
+        const status = document.getElementById('tee-status');
+        if (status) status.textContent = 'Error parsing tee data.';
+      }
+    }
+
+      const debounced = debounce(async function(ev) {
+        const q = input.value && input.value.trim();
+        if (!q || q.length < 2) { clearSuggestions(); return; }
+        const suggestions = await fetchSuggestions(q);
+        renderSuggestions(suggestions);
+      }, 280);
+
+      input.addEventListener('input', debounced);
+      // Also try populating tees when the user leaves the course input (blur)
+      input.addEventListener('blur', function() {
+        try {
+          const q = input.value && input.value.trim();
+          if (q && q.length > 2) fetchCourseAndPopulate(q);
+        } catch (e) {}
+      });
+      document.addEventListener('click', function(ev) {
+        if (!suggestionsContainer.contains(ev.target) && ev.target !== input) {
+          clearSuggestions();
+        }
+      });
+
+        // If page provided a fixed course name, populate tees immediately (only if map is opted-in)
+        try {
+          if (window.FIXED_COURSE && window.FIXED_COURSE_NAME) {
+            const ci = document.getElementById('id_course');
+            if (ci) ci.value = window.FIXED_COURSE_NAME;
+            if (document.getElementById('id_include_map') && document.getElementById('id_include_map').checked) {
+              fetchCourseAndPopulate(window.FIXED_COURSE_NAME);
+            }
+          } else {
+            // If the course input already has a value (e.g., from URL), try to populate only if map opted-in
+            const existing = input.value && input.value.trim();
+            if (existing && existing.length > 2 && document.getElementById('id_include_map') && document.getElementById('id_include_map').checked) fetchCourseAndPopulate(existing);
+          }
+        } catch (e) {}
+
+      // Load tees button and payload debug toggler
+      try {
+        // tee load controls removed for analyze page UX
+      } catch (e) {}
+
+        // When the include_map checkbox toggles, only control auto-fetching; keep the course input editable
+      try {
+        const includeMap = document.getElementById('id_include_map');
+        const courseInput = document.getElementById('id_course');
+        if (includeMap) {
+          includeMap.addEventListener('change', function() {
+            if (includeMap.checked) {
+              const val = courseInput && courseInput.value && courseInput.value.trim();
+              if (val && val.length > 2) fetchCourseAndPopulate(val);
+            } else {
+              const status = document.getElementById('tee-status'); if (status) status.textContent = 'Map overlay disabled (enable to load tees).';
+            }
+          });
+        }
+      } catch (e) {}
+
+      // Confirm modal
+      function showConfirmModal(suggestedText, onConfirm) {
+        // Create modal elements lazily
+        let modal = document.getElementById('course-confirm-modal');
+        if (!modal) {
+          modal = document.createElement('div');
+          modal.id = 'course-confirm-modal';
+          modal.innerHTML = `
+            <div class="fixed inset-0 z-60 flex items-center justify-center bg-black bg-opacity-40">
+              <div class="bg-white rounded-lg shadow-lg w-11/12 max-w-lg p-6">
+                <h3 class="text-lg font-semibold mb-2">Did you mean this course?</h3>
+                <p id="course-confirm-text" class="text-sm text-gray-700 mb-4"></p>
+                <div class="flex justify-end space-x-3">
+                  <button id="course-confirm-keep" class="px-4 py-2 rounded bg-gray-100">Keep typed</button>
+                  <button id="course-confirm-use" class="px-4 py-2 rounded bg-green-600 text-white">Use suggestion</button>
+                </div>
+              </div>
+            </div>`;
+          document.body.appendChild(modal);
+
+          document.getElementById('course-confirm-keep').addEventListener('click', () => { modal.remove(); });
+        }
+        document.getElementById('course-confirm-text').textContent = suggestedText;
+        // attach confirm handler
+        const useBtn = document.getElementById('course-confirm-use');
+        const handler = () => { onConfirm(); modal.remove(); useBtn.removeEventListener('click', handler); };
+        useBtn.addEventListener('click', handler);
+      }
+    })();
+  </script>
+{% endblock %}

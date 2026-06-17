@@ -1,0 +1,697 @@
+{% extends 'base.html' %}
+{% load shot_extras %}
+{% load tz %}
+
+{% block content %}
+  <div class="max-w-6xl mx-auto">
+    <h2 class="text-3xl font-bold mb-6">
+      {% if analysis.course_name %}{{ analysis.course_name }}{% else %}Course{% endif %}
+      {% if analysis.hole_number %}- Hole {{ analysis.hole_number }}{% endif %}
+      {% if analysis.stroke_number %}- Shot {{ analysis.stroke_number }}{% endif %}
+    </h2>
+
+  <div class="mb-6 flex flex-wrap gap-2">
+      <a href="{% url 'shots:shot_list' %}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+        📋 View Favorite Shots
+      </a>
+      <form method="post" action="{% url 'shots:toggle_favorite' analysis.pk %}">
+        {% csrf_token %}
+        {% if analysis.is_favorite %}
+          <button type="submit" class="inline-block bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition">⭐ Remove from Favorites</button>
+        {% else %}
+          <button type="submit" class="inline-block bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">⭐ Add to Favorites</button>
+        {% endif %}
+      </form>
+      {% if analysis.round and analysis.hole_number %}
+        <a href="{% url 'shots:round_hole_shots' analysis.round.pk analysis.hole_number %}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+          ← Back to Hole
+        </a>
+      {% elif back_to_hole_url %}
+        <a href="{{ back_to_hole_url }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+          ← Back to Hole
+        </a>
+      {% endif %}
+    </div>
+
+  {# Measure Shot Distance removed per user request. Hole-level map remains available via Hole Map page. #}
+
+    <!-- Shot Details -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+      <h3 class="text-xl font-semibold mb-4">🏌️ Shot Details</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% if analysis.stroke_number %}
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Stroke</p>
+          <p class="text-lg font-medium">#{{ analysis.stroke_number }}</p>
+        </div>
+        {% endif %}
+        {% if analysis.round %}
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Round</p>
+          <p class="text-lg font-medium">{{ analysis.round.name|default:'Round' }}{% if analysis.round.played_at %} — {{ analysis.round.played_at|date:"M d, Y" }}{% endif %}</p>
+        </div>
+        {% endif %}
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Club</p>
+          <p class="text-lg font-medium">⛳ {{ analysis.club }}</p>
+        </div>
+          <div class="bg-gray-50 p-4 rounded-lg">
+            <p class="text-gray-600 text-sm">Preferred Tee</p>
+            <p class="text-lg font-medium">{{ analysis.selected_tee|default:'Any' }}</p>
+          </div>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <p class="text-gray-600 text-sm">Distance</p>
+          <p class="text-lg font-medium">📏 {{ analysis.distance }} yards</p>
+        </div>
+  {# Uploaded info removed per user request #}
+      </div>
+    </div>
+
+    <!-- Videos Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Original Video -->
+      {% if analysis.input_video %}
+      <div class="bg-white shadow-md rounded-lg p-6">
+        <h3 class="text-xl font-semibold mb-4">📹 Original Video</h3>
+        <video 
+          controls 
+          playsinline
+          preload="metadata"
+          class="w-full rounded-lg shadow-lg"
+        >
+          <source src="{{ analysis.input_video.url }}" type="video/mp4">
+          <source src="{{ analysis.input_video.url }}" type="video/quicktime">
+          Your browser does not support the video tag.
+        </video>
+        <p class="mt-2 text-sm text-gray-500">📱 Tap to play, pinch to zoom</p>
+      </div>
+      {% endif %}
+
+    <!-- Processed video container (includes inline progress/status) -->
+    <div id="processed-video-container" class="bg-white shadow-md rounded-lg p-6">
+      <div id="overlay-progress" class="mb-4"></div>
+      <div id="overlay-player">
+      {% if analysis.processed_video %}
+        <h3 class="text-xl font-semibold mb-4">🗺️ Processed Video (Map Overlay)</h3>
+        <div class="relative">
+          <video 
+            controls 
+            playsinline
+            preload="metadata"
+            class="w-full rounded-lg shadow-lg"
+            id="processed-video"
+          >
+            <source src="{{ analysis.processed_video.url }}" type="video/mp4">
+            Your browser does not support the video tag.
+          </video>
+        </div>
+        <p class="mt-2 text-sm text-green-600 font-medium">✅ GPS map overlay applied</p>
+      {% else %}
+        {% if analysis.status == 'uploading' or analysis.status == 'processing' %}
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            {% if overlay_info.course or overlay_info.hole or overlay_info.yardage or overlay_info.par %}
+              <div class="mb-4">
+                <div class="bg-black bg-opacity-60 text-white rounded-md px-4 py-3 shadow-lg max-w-md">
+                  {% if overlay_info.course %}
+                    <div class="font-semibold text-lg">{{ overlay_info.course }}</div>
+                  {% endif %}
+                  <div class="text-sm mt-1">
+                    {% if overlay_info.hole %}
+                      <span class="font-medium">Hole {{ overlay_info.hole }}</span>
+                    {% endif %}
+                    {% if overlay_info.yardage %}
+                      <span class="ml-2">— {{ overlay_info.yardage }} yards</span>
+                    {% endif %}
+                  </div>
+                  {% if overlay_info.par %}
+                    <div class="text-sm text-gray-200 mt-1">Par {{ overlay_info.par }}</div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+            <h3 class="text-xl font-semibold mb-2 text-blue-800">⏳ Processing</h3>
+            <p class="text-blue-700">Your video is being processed. This can take a minute — refresh this page in a moment.</p>
+            <p class="text-sm text-gray-600 mt-2">Status: {{ analysis.status }}</p>
+          </div>
+        {% else %}
+          <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6">
+            <h3 class="text-xl font-semibold mb-2 text-yellow-800">⚠️ Processing Failed</h3>
+            <p class="text-yellow-700">The video processing could not be completed. The original video is available above.</p>
+            {% if analysis.error_message %}
+              <p class="mt-2 text-sm text-red-700">Error: {{ analysis.error_message }}</p>
+            {% endif %}
+            <p class="text-yellow-700 mt-2">Hint: Ensure <code>ffmpeg</code> and <code>ffprobe</code> are installed and in your PATH.
+              Check the latest log in <code>media/logs/overlay_*.log</code> for details.</p>
+          </div>
+        {% endif %}
+      {% endif %}
+      </div>
+    </div>
+    </div>
+
+  {# Overlayed pose video removed per user request - no separate overlayed video displayed #}
+
+    <!-- AI Swing Coach -->
+    {% if analysis.ai_main_fault or analysis.ai_strength or analysis.ai_drill or analysis.ai_swing_thought %}
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-xl font-semibold mb-4">🤖 AI Swing Coach</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+        {% if analysis.ai_main_fault %}
+        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p class="text-xs font-semibold text-red-500 uppercase tracking-wide mb-1">Main Fault</p>
+          <p class="text-gray-800 text-sm leading-relaxed">{{ analysis.ai_main_fault }}</p>
+        </div>
+        {% endif %}
+
+        {% if analysis.ai_strength %}
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+          <p class="text-xs font-semibold text-green-600 uppercase tracking-wide mb-1">Strength</p>
+          <p class="text-gray-800 text-sm leading-relaxed">{{ analysis.ai_strength }}</p>
+        </div>
+        {% endif %}
+
+        {% if analysis.ai_drill %}
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p class="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Recommended Drill</p>
+          <p class="text-gray-800 text-sm leading-relaxed">{{ analysis.ai_drill }}</p>
+        </div>
+        {% endif %}
+
+        {% if analysis.ai_swing_thought %}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p class="text-xs font-semibold text-yellow-600 uppercase tracking-wide mb-1">Swing Thought</p>
+          <p class="text-gray-800 text-sm leading-relaxed italic">"{{ analysis.ai_swing_thought }}"</p>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% elif analysis.status == 'completed' %}
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-6 text-sm text-gray-500">
+      <p>🤖 AI Swing Coach analysis is not yet available for this shot. It may still be processing, or pose detection did not find enough data in this video.</p>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SWING SCORE DASHBOARD
+    ═══════════════════════════════════════════════════════════ -->
+    {% if analysis.ai_overall_score is not None %}
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-xl font-semibold mb-5">📊 Swing Score Dashboard</h3>
+
+      <!-- Overall score ring -->
+      <div class="flex flex-col sm:flex-row items-center gap-6 mb-6">
+        <div class="flex-shrink-0 text-center">
+          {% with s=analysis.ai_overall_score %}
+          <div class="relative inline-flex items-center justify-center w-28 h-28 rounded-full
+            {% if s >= 70 %}bg-green-100 border-4 border-green-400
+            {% elif s >= 50 %}bg-yellow-100 border-4 border-yellow-400
+            {% else %}bg-red-100 border-4 border-red-400{% endif %}">
+            <div class="text-center">
+              <span class="text-3xl font-bold
+                {% if s >= 70 %}text-green-700{% elif s >= 50 %}text-yellow-700{% else %}text-red-700{% endif %}">
+                {{ s }}
+              </span>
+              <span class="block text-xs text-gray-500 font-medium">/100</span>
+            </div>
+          </div>
+          <p class="mt-2 text-sm font-semibold text-gray-700">
+            {% if s >= 85 %}Excellent{% elif s >= 70 %}Good{% elif s >= 50 %}Average{% else %}Needs Work{% endif %}
+          </p>
+          {% endwith %}
+        </div>
+
+        <!-- Score breakdown bars -->
+        <div class="flex-1 w-full space-y-3">
+          {% with dims=analysis %}
+
+          {% if dims.ai_tempo_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Tempo</span>
+              <span class="font-semibold
+                {% if dims.ai_tempo_score >= 70 %}text-green-600{% elif dims.ai_tempo_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_tempo_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_tempo_score >= 70 %}bg-green-500{% elif dims.ai_tempo_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_tempo_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_balance_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Balance</span>
+              <span class="font-semibold
+                {% if dims.ai_balance_score >= 70 %}text-green-600{% elif dims.ai_balance_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_balance_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_balance_score >= 70 %}bg-green-500{% elif dims.ai_balance_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_balance_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_rotation_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Rotation</span>
+              <span class="font-semibold
+                {% if dims.ai_rotation_score >= 70 %}text-green-600{% elif dims.ai_rotation_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_rotation_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_rotation_score >= 70 %}bg-green-500{% elif dims.ai_rotation_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_rotation_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_posture_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Posture</span>
+              <span class="font-semibold
+                {% if dims.ai_posture_score >= 70 %}text-green-600{% elif dims.ai_posture_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_posture_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_posture_score >= 70 %}bg-green-500{% elif dims.ai_posture_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_posture_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_sequencing_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Sequencing</span>
+              <span class="font-semibold
+                {% if dims.ai_sequencing_score >= 70 %}text-green-600{% elif dims.ai_sequencing_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_sequencing_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_sequencing_score >= 70 %}bg-green-500{% elif dims.ai_sequencing_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_sequencing_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if dims.ai_consistency_score is not None %}
+          <div>
+            <div class="flex justify-between text-xs text-gray-600 mb-1">
+              <span class="font-medium">Consistency</span>
+              <span class="font-semibold
+                {% if dims.ai_consistency_score >= 70 %}text-green-600{% elif dims.ai_consistency_score >= 50 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {{ dims.ai_consistency_score }}/100
+              </span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="h-2 rounded-full {% if dims.ai_consistency_score >= 70 %}bg-green-500{% elif dims.ai_consistency_score >= 50 %}bg-yellow-500{% else %}bg-red-500{% endif %}"
+                   style="width:{{ dims.ai_consistency_score }}%"></div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% endwith %}
+        </div>
+      </div>
+
+      <!-- Shot shape + Pro comparison badges -->
+      <div class="flex flex-wrap gap-3 mt-2">
+        {% if analysis.ai_shot_shape and analysis.ai_shot_shape != 'unknown' %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+          {% if analysis.ai_shot_shape == 'straight' or analysis.ai_shot_shape == 'draw' %}bg-green-100 text-green-800
+          {% elif analysis.ai_shot_shape == 'fade' %}bg-blue-100 text-blue-800
+          {% elif analysis.ai_shot_shape == 'slice' or analysis.ai_shot_shape == 'hook' %}bg-red-100 text-red-800
+          {% else %}bg-gray-100 text-gray-700{% endif %}">
+          ⛳ Shot Shape: {{ analysis.ai_shot_shape|title }}
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Pro comparison -->
+      {% if analysis.ai_pro_comparison %}
+      <div class="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+        <p class="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">🏆 Tour Pro Comparison</p>
+        <p class="text-sm text-gray-800 leading-relaxed">{{ analysis.ai_pro_comparison }}</p>
+      </div>
+      {% endif %}
+
+      <!-- Trend summary -->
+      {% if analysis.ai_trend_summary %}
+      <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+        <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1">📈 Trend Analysis</p>
+        <p class="text-sm text-gray-800 leading-relaxed">{{ analysis.ai_trend_summary }}</p>
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         CONVERSATIONAL AI COACH
+    ═══════════════════════════════════════════════════════════ -->
+    {% if analysis.ai_main_fault or analysis.ai_overall_score is not None %}
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-xl font-semibold mb-2">💬 Ask Your AI Coach</h3>
+      <p class="text-sm text-gray-500 mb-2">The coach remembers everything you've discussed this session.</p>
+
+      <!-- Conversation thread -->
+      <div id="coach-thread" class="space-y-3 mb-4 max-h-96 overflow-y-auto"></div>
+
+      <!-- Loading indicator -->
+      <div id="coach-loading" class="hidden text-sm text-gray-500 flex items-center gap-2 mb-3">
+        <svg class="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        Thinking...
+      </div>
+
+      <!-- Input row -->
+      <div class="flex gap-2">
+        <input type="text" id="coach-question"
+               placeholder="e.g. Why do I keep slicing? What drill should I focus on?"
+               class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+               maxlength="500" />
+        <button id="coach-ask-btn"
+                class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition">
+          Ask
+        </button>
+      </div>
+
+      <!-- Quick question chips -->
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">Why do I slice?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">What's my biggest issue?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">How can I add distance?</button>
+        <button class="coach-chip text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition">Explain my tempo score</button>
+      </div>
+    </div>
+
+    <script>
+    (function () {
+      const chatUrl = "{% url 'shots:ai_coach_chat' analysis.pk %}";
+      const csrfToken = "{{ csrf_token }}";
+      const thread = document.getElementById('coach-thread');
+
+      // Conversation history sent to the server with every request
+      var history = [];
+
+      function appendBubble(role, text) {
+        var isUser = role === 'user';
+        var wrap = document.createElement('div');
+        wrap.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+        var bubble = document.createElement('div');
+        bubble.className = isUser
+          ? 'max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm bg-indigo-600 text-white'
+          : 'max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm bg-gray-100 text-gray-800';
+        bubble.textContent = text;
+        wrap.appendChild(bubble);
+        thread.appendChild(wrap);
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      function askCoach(question) {
+        question = question.trim();
+        if (!question) return;
+
+        document.getElementById('coach-question').value = '';
+        appendBubble('user', question);
+        document.getElementById('coach-loading').classList.remove('hidden');
+        document.getElementById('coach-ask-btn').disabled = true;
+
+        fetch(chatUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ question: question, history: history }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var answer = data.answer || data.error || 'No response received.';
+            appendBubble('assistant', answer);
+            // Append to history so next message has full context
+            history.push({ role: 'user', content: question });
+            history.push({ role: 'assistant', content: answer });
+          })
+          .catch(function() {
+            appendBubble('assistant', 'Could not connect to the AI coach. Please try again.');
+          })
+          .finally(function() {
+            document.getElementById('coach-loading').classList.add('hidden');
+            document.getElementById('coach-ask-btn').disabled = false;
+          });
+      }
+
+      document.getElementById('coach-ask-btn').addEventListener('click', function () {
+        askCoach(document.getElementById('coach-question').value);
+      });
+
+      document.getElementById('coach-question').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') askCoach(this.value);
+      });
+
+      document.querySelectorAll('.coach-chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          askCoach(this.textContent.trim());
+        });
+      });
+    })();
+    </script>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════════════════════
+         INLINE OVERLAY CONTROLS
+    ═══════════════════════════════════════════════════════════ -->
+    <div class="bg-white shadow-md rounded-lg p-6 mt-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-800">🎬 Video Overlays &amp; Club</h3>
+
+      <!-- Club selector -->
+      <div class="mb-4">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Club</label>
+        <select id="overlay-club"
+                class="w-full sm:w-64 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+          <option value="">Keep current ({{ analysis.club|default:'Unknown' }})</option>
+          {% for c in clubs %}
+          <option value="{{ c }}" {% if analysis.club == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Toggle buttons -->
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Overlays</p>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button id="btn-wireframe"
+                data-active="{{ analysis.overlay_requested|yesno:'1,0' }}"
+                onclick="overlayToggle('wireframe')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.overlay_requested %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          🦴 Wireframe
+        </button>
+        <button id="btn-map"
+                data-active="{{ analysis.include_map|yesno:'1,0' }}"
+                onclick="overlayToggle('map')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.include_map %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          🗺️ GPS Map
+        </button>
+        <button id="btn-text"
+                data-active="{{ analysis.include_course_text|yesno:'1,0' }}"
+                onclick="overlayToggle('text')"
+                class="overlay-toggle-btn flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl border transition font-medium
+                  {% if analysis.include_course_text %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-gray-300 bg-white text-gray-600 hover:border-indigo-400 hover:text-indigo-700{% endif %}">
+          📝 Course Text
+        </button>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-apply-overlays" onclick="applyOverlays()"
+                class="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-xl hover:bg-indigo-700 transition">
+          Apply
+        </button>
+        <button id="btn-remove-overlays" onclick="removeAllOverlays()"
+                class="border border-gray-300 text-gray-500 text-sm font-medium px-6 py-2.5 rounded-xl hover:border-red-400 hover:text-red-500 transition bg-white">
+          Remove All
+        </button>
+      </div>
+      <p id="overlay-inline-msg" class="text-xs text-gray-400 mt-2 hidden"></p>
+    </div>
+
+  <!-- Back Button removed per user request -->
+  </div>
+  
+  <style>
+    /* Optimize video playback on mobile */
+    video {
+      max-width: 100%;
+      height: auto;
+    }
+    
+    /* Prevent auto-zoom on focus for iOS */
+    @media screen and (max-width: 768px) {
+      video {
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    // ── Overlay toggle controls ────────────────────────────────────────────
+    (function(){
+      var reprocessUrl = "{% url 'shots:reprocess_overlays' analysis.pk %}";
+      var csrfToken    = "{{ csrf_token }}";
+      var statusUrl    = "{% url 'shots:overlay_status' analysis.pk %}";
+
+      var KEY_MAP = { wireframe: 'overlay_pose', map: 'include_map', text: 'include_course_text' };
+
+      window.overlayToggle = function (key) {
+        var btn = document.getElementById('btn-' + key);
+        if (!btn) return;
+        var next = btn.getAttribute('data-active') === '1' ? '0' : '1';
+        btn.setAttribute('data-active', next);
+        if (next === '1') {
+          btn.classList.add('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.remove('border-gray-300', 'bg-white', 'text-gray-600');
+        } else {
+          btn.classList.remove('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.add('border-gray-300', 'bg-white', 'text-gray-600');
+        }
+      };
+
+      window.applyOverlays = function () {
+        var wireframe = document.getElementById('btn-wireframe').getAttribute('data-active') === '1' ? '1' : '0';
+        var map       = document.getElementById('btn-map').getAttribute('data-active')       === '1' ? '1' : '0';
+        var text      = document.getElementById('btn-text').getAttribute('data-active')      === '1' ? '1' : '0';
+        var club      = (document.getElementById('overlay-club') || {}).value || '';
+        sendReprocess(wireframe, map, text, club);
+      };
+
+      window.removeAllOverlays = function () {
+        ['wireframe', 'map', 'text'].forEach(function (key) {
+          var btn = document.getElementById('btn-' + key);
+          if (!btn) return;
+          btn.setAttribute('data-active', '0');
+          btn.classList.remove('border-indigo-500', 'bg-indigo-50', 'text-indigo-700');
+          btn.classList.add('border-gray-300', 'bg-white', 'text-gray-600');
+        });
+        sendReprocess('0', '0', '0', '');
+      };
+
+      function sendReprocess(wireframe, map, text, club) {
+        var applyBtn  = document.getElementById('btn-apply-overlays');
+        var removeBtn = document.getElementById('btn-remove-overlays');
+        var msg       = document.getElementById('overlay-inline-msg');
+        if (applyBtn)  { applyBtn.disabled  = true; applyBtn.textContent  = 'Processing…'; }
+        if (removeBtn) { removeBtn.disabled = true; }
+        if (msg)       { msg.textContent = ''; msg.classList.add('hidden'); }
+
+        var body = 'ajax=1'
+          + '&overlay_pose='            + wireframe
+          + '&include_map='             + map
+          + '&include_course_text='     + text
+          + (club ? '&club=' + encodeURIComponent(club) : '');
+
+        fetch(reprocessUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+          body: body,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.status === 'queued') {
+              if (msg) { msg.textContent = 'Processing — video will update shortly.'; msg.classList.remove('hidden'); }
+              pollForVideo(function () {
+                if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+                if (removeBtn) { removeBtn.disabled = false; }
+              });
+            } else {
+              if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+              if (removeBtn) { removeBtn.disabled = false; }
+              if (msg) { msg.textContent = data.error || 'Failed to queue.'; msg.classList.remove('hidden'); }
+            }
+          })
+          .catch(function () {
+            if (applyBtn)  { applyBtn.disabled  = false; applyBtn.textContent  = 'Apply'; }
+            if (removeBtn) { removeBtn.disabled = false; }
+            if (msg) { msg.textContent = 'Request failed. Try again.'; msg.classList.remove('hidden'); }
+          });
+      }
+
+      function pollForVideo(onDone) {
+        var consecutiveErrors = 0;
+        var maxErrors = 10;
+        var maxPollMs = 20 * 60 * 1000; // 20-minute safety ceiling
+        var startedAt = Date.now();
+        var interval = setInterval(function () {
+          if (Date.now() - startedAt > maxPollMs) {
+            clearInterval(interval);
+            var msg = document.getElementById('overlay-inline-msg');
+            if (msg) { msg.textContent = 'Processing is taking longer than expected. Refresh the page to check status.'; msg.classList.remove('hidden'); }
+            if (onDone) onDone();
+            return;
+          }
+          fetch(statusUrl, { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              consecutiveErrors = 0;
+              var overall = data.status || '';
+              var overlayDone = data.overlay_status === 'completed';
+              var processedUrl = data.processed_video_url || '';
+              if ((overall === 'completed' || overlayDone) && processedUrl) {
+                clearInterval(interval);
+                var player = document.getElementById('overlay-player');
+                if (player) {
+                  player.innerHTML = '<h3 class="text-xl font-semibold mb-4">Processed Video</h3>'
+                    + '<video controls playsinline preload="metadata" class="w-full rounded-lg shadow-lg">'
+                    + '<source src="' + processedUrl + '" type="video/mp4"></video>';
+                  var vid = player.querySelector('video');
+                  if (vid) vid.load();
+                }
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Done!'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              } else if (overall === 'failed') {
+                clearInterval(interval);
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Processing failed. Please try again.'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              }
+            })
+            .catch(function () {
+              consecutiveErrors++;
+              if (consecutiveErrors >= maxErrors) {
+                clearInterval(interval);
+                var msg = document.getElementById('overlay-inline-msg');
+                if (msg) { msg.textContent = 'Connection issue. Refresh the page to check status.'; msg.classList.remove('hidden'); }
+                if (onDone) onDone();
+              }
+              // otherwise keep polling — transient network errors are common during heavy processing
+            });
+        }, 3000);
+      }
+
+      // Auto-poll on page load if still processing
+      (function(){
+        var initialStatus = "{{ analysis.status|default:'' }}";
+        if (initialStatus === 'processing' || initialStatus === 'uploading') {
+          pollForVideo(null);
+        }
+      })();
+    })();
+  </script>
+  {# Mapbox shot-distance JS removed per user request #}
+{% endblock %}

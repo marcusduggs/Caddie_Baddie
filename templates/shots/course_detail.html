@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-4xl mx-auto p-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-semibold">{{ course.name }}</h2>
+      <a href="{% url 'shots:add_round' course.pk %}" class="bg-green-600 text-white px-4 py-2 rounded">Add Round</a>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow">
+      <p class="text-sm text-gray-600">Created: {{ course.created_at|date:"M d, Y" }}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow mt-4">
+      <h4 class="font-medium mb-2">Stored Tee Sets</h4>
+      {% if course.tee_names_json %}
+        {% with tee_list=course.tee_names_json|safe %}
+          <div class="flex gap-2 flex-wrap">
+            {% for tn in tee_list|json_script:'_unused'|safe %}
+              <!-- json_script used for safety; we'll just show raw JSON fallback below -->
+            {% endfor %}
+          </div>
+        {% endwith %}
+        <pre class="mt-2 p-2 bg-gray-50 text-sm text-gray-800">{{ course.tee_names_json }}</pre>
+      {% else %}
+        <p class="text-sm text-gray-600">No tee sets stored for this course.</p>
+      {% endif %}
+
+      <form method="post" action="{% url 'shots:refresh_course_tees' course.pk %}" class="mt-3 inline-block">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded text-sm">Refresh tees</button>
+      </form>
+    </div>
+
+    <h3 class="mt-6 text-xl font-semibold">Rounds</h3>
+    {% if rounds %}
+      <ul class="mt-3 space-y-2">
+        {% for r in rounds %}
+          <li class="bg-white p-3 rounded shadow flex justify-between items-center">
+            <div>
+              <div class="font-medium">{{ r.name|default:'Round' }}</div>
+              {% if r.played_at %}<div class="text-sm text-gray-500">Played: {{ r.played_at|date:"M d, Y" }}</div>{% endif %}
+            </div>
+            <div class="flex items-center gap-3">
+              <a href="{% url 'shots:round_holes' r.pk %}" class="inline-block bg-blue-600 text-white px-3 py-1 rounded text-sm">View</a>
+              <a href="{% url 'shots:analyze_upload' %}?round_id={{ r.pk }}{% if r.course_name %}&course={{ r.course_name|urlencode }}{% endif %}" class="inline-block bg-green-600 text-white px-3 py-1 rounded text-sm">Add Hole</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-3 text-sm text-gray-600">No rounds yet. Click Add Round to upload shots for this course.</p>
+    {% endif %}
+
+    <div class="mt-6">
+      <a href="{% url 'shots:courses_list' %}" class="text-sm text-gray-600">← Back to Courses</a>
+    </div>
+  </div>
+{% endblock %}

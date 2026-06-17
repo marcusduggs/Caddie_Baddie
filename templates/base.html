@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Caddie Baddie</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+      @media (max-width: 768px) {
+        body { font-size: 16px; }
+        input, select, textarea { font-size: 16px; }
+        video { max-width: 100%; height: auto; }
+      }
+      .nav-link { min-height: 36px; display: inline-flex; align-items: center; }
+    </style>
+  </head>
+  <body class="bg-gray-50 flex flex-col min-h-screen">
+
+    <!-- ── Navbar ── -->
+    <nav class="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+      <div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-20">
+
+        <!-- Logo -->
+        <a href="/" class="flex items-center gap-3 shrink-0">
+          <img src="/static/images/caddie_baddie_logo.PNG" alt="Caddie Baddie"
+               class="h-14 w-14 object-contain rounded-2xl shadow-md ring-2 ring-green-200" />
+          <span class="font-extrabold text-gray-900 tracking-tight text-lg">Caddie Baddie</span>
+        </a>
+
+        {% if user.is_authenticated %}
+        <!-- Desktop nav links -->
+        <div class="hidden md:flex items-center gap-1">
+          {% if request.path != '/' %}
+          <a href="/"
+             class="nav-link text-sm font-medium text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+            Home
+          </a>
+          <div class="w-px h-5 bg-gray-200 mx-0.5"></div>
+          {% endif %}
+          <a href="{% url 'shots:quick_upload' %}"
+             class="nav-link text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition px-3 py-1.5 rounded-lg">
+            ⚡ Quick Upload
+          </a>
+          <a href="{% url 'shots:quick_swings' %}"
+             class="nav-link text-sm font-medium text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+            My Swings
+          </a>
+          <a href="{% url 'shots:courses_list' %}"
+             class="nav-link text-sm font-medium text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+            Courses
+          </a>
+          <a href="{% url 'shots:shot_list' %}"
+             class="nav-link text-sm font-medium text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+            Favorites
+          </a>
+          <div class="w-px h-5 bg-gray-200 mx-1"></div>
+          <form method="post" action="{% url 'logout' %}" class="inline">
+            {% csrf_token %}
+            <button type="submit" class="nav-link text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+              Log Out
+            </button>
+          </form>
+        </div>
+
+        <!-- Mobile hamburger -->
+        <button id="nav-toggle" aria-label="Open menu"
+                class="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition">
+          <svg id="icon-menu" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+          <svg id="icon-close" class="w-5 h-5 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+
+        {% else %}
+        <!-- Logged-out: just auth buttons -->
+        <div class="flex items-center gap-2">
+          {% if request.path != '/' %}
+          <a href="/"
+             class="nav-link text-sm font-medium text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg">
+            Home
+          </a>
+          {% endif %}
+          <a href="/accounts/login/"
+             class="nav-link text-sm font-semibold text-gray-700 hover:bg-gray-100 transition px-3 py-1.5 rounded-lg border border-gray-200">
+            Log In
+          </a>
+          <a href="/accounts/signup/"
+             class="nav-link text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition px-3 py-1.5 rounded-lg">
+            Sign Up
+          </a>
+        </div>
+        {% endif %}
+
+      </div>
+
+      {% if user.is_authenticated %}
+      <!-- Mobile dropdown menu -->
+      <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 bg-white px-4 pb-4 pt-2">
+        <div class="flex flex-col gap-1">
+          {% if request.path != '/' %}
+          <a href="/"
+             class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition px-4 py-2.5 rounded-xl">
+            🏠 Home
+          </a>
+          {% endif %}
+          <a href="{% url 'shots:quick_upload' %}"
+             class="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition px-4 py-2.5 rounded-xl">
+            ⚡ Quick Upload
+          </a>
+          <a href="{% url 'shots:quick_swings' %}"
+             class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition px-4 py-2.5 rounded-xl">
+            🎬 My Quick Swings
+          </a>
+          <a href="{% url 'shots:courses_list' %}"
+             class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition px-4 py-2.5 rounded-xl">
+            🏌️ Courses
+          </a>
+          <a href="{% url 'shots:shot_list' %}"
+             class="flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition px-4 py-2.5 rounded-xl">
+            ⭐ Favorites
+          </a>
+          <div class="border-t border-gray-100 mt-1 pt-1">
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="flex items-center gap-2 text-sm font-medium text-gray-500 hover:bg-gray-50 transition px-4 py-2.5 rounded-xl w-full text-left">
+                Log Out
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </nav>
+
+    <!-- ── Email verification banner ── -->
+    {% if user.is_authenticated and not user.email_verified %}
+    <div id="verify-banner" class="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-center text-sm flex items-center justify-center gap-3 flex-wrap">
+      <span class="text-amber-800 font-medium">Please verify your email address to secure your account.</span>
+      <form method="post" action="{% url 'resend_verification' %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="text-amber-900 font-bold underline hover:no-underline text-sm">
+          Resend email
+        </button>
+      </form>
+      <button onclick="document.getElementById('verify-banner').style.display='none'"
+              class="text-amber-400 hover:text-amber-700 text-lg leading-none" aria-label="Dismiss">
+        &times;
+      </button>
+    </div>
+    {% endif %}
+
+    <!-- ── Django messages ── -->
+    {% if messages %}
+    <div class="max-w-6xl mx-auto px-4 pt-4 space-y-2">
+      {% for message in messages %}
+      <div class="px-4 py-3 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-green-50 text-green-800 border border-green-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200
+        {% else %}bg-blue-50 text-blue-800 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- ── Page content ── -->
+    <main class="flex-1">
+      {% block content %}{% endblock %}
+    </main>
+
+    <!-- ── Footer ── -->
+    <footer class="mt-auto py-5 text-center text-gray-400 text-xs border-t border-gray-100">
+      Caddie Baddie &bull; Make every swing share-worthy.
+    </footer>
+
+    <!-- Mobile menu toggle -->
+    <script>
+      (function () {
+        const toggle = document.getElementById('nav-toggle');
+        const menu   = document.getElementById('mobile-menu');
+        const iconMenu  = document.getElementById('icon-menu');
+        const iconClose = document.getElementById('icon-close');
+        if (!toggle) return;
+        toggle.addEventListener('click', function () {
+          const open = !menu.classList.contains('hidden');
+          menu.classList.toggle('hidden', open);
+          iconMenu.classList.toggle('hidden', !open);
+          iconClose.classList.toggle('hidden', open);
+        });
+      })();
+    </script>
+
+    {% block extra_scripts %}{% endblock %}
+  </body>
+</html>

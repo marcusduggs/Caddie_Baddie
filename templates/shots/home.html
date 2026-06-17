@@ -1,0 +1,215 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{% if user.is_authenticated %}
+<!-- ═══════════════════════════════════════════════════════════
+     LOGGED-IN DASHBOARD
+═══════════════════════════════════════════════════════════ -->
+<div class="max-w-4xl mx-auto px-4 py-10">
+
+  <!-- Welcome -->
+  <div class="mb-10">
+    <h1 class="text-3xl font-extrabold text-gray-900">Welcome back</h1>
+    <p class="text-gray-400 text-sm mt-1">What do you want to do today?</p>
+  </div>
+
+  <!-- Primary actions -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
+
+    <!-- Quick Upload -->
+    <a href="{% url 'shots:quick_upload' %}"
+       class="group relative bg-indigo-600 hover:bg-indigo-700 transition rounded-2xl p-7 shadow-md flex flex-col justify-between min-h-[160px] overflow-hidden">
+      <div class="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white,transparent)]"></div>
+      <div>
+        <span class="text-3xl">⚡</span>
+        <h2 class="text-xl font-extrabold text-white mt-2">Quick Upload</h2>
+        <p class="text-indigo-200 text-sm mt-1 leading-relaxed">Upload a swing and get instant AI coaching — no course setup needed.</p>
+      </div>
+      <span class="mt-4 inline-block text-xs font-semibold text-white bg-white bg-opacity-20 px-3 py-1 rounded-full self-start group-hover:bg-opacity-30 transition">
+        Upload now →
+      </span>
+    </a>
+
+    <!-- My Quick Swings -->
+    <a href="{% url 'shots:quick_swings' %}"
+       class="group bg-white hover:shadow-lg transition rounded-2xl p-7 shadow-md border border-gray-100 flex flex-col justify-between min-h-[160px]">
+      <div>
+        <span class="text-3xl">🎬</span>
+        <h2 class="text-xl font-extrabold text-gray-900 mt-2">My Quick Swings</h2>
+        <p class="text-gray-400 text-sm mt-1 leading-relaxed">Browse your uploaded swings, scores, and AI feedback.</p>
+      </div>
+      <span class="mt-4 inline-block text-xs font-semibold text-indigo-600 group-hover:underline self-start">
+        View library →
+      </span>
+    </a>
+
+  </div>
+
+  <!-- Secondary actions -->
+  <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Round Tracking</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+
+    <a href="{% url 'shots:add_course' %}"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl flex-shrink-0">🏌️</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">Add Course</p>
+        <p class="text-xs text-gray-400">Set up a new course</p>
+      </div>
+    </a>
+
+    <a href="{% url 'shots:home' %}?from_home=1"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-xl flex-shrink-0">🗺️</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">My Courses</p>
+        <p class="text-xs text-gray-400">View rounds &amp; holes</p>
+      </div>
+    </a>
+
+    <a href="{% url 'shots:shot_list' %}"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-yellow-50 flex items-center justify-center text-xl flex-shrink-0">⭐</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">Favorite Shots</p>
+        <p class="text-xs text-gray-400">Your shared moments</p>
+      </div>
+    </a>
+
+  </div>
+
+  <!-- What the AI gives you — subtle reminder -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">🤖</div>
+      <p class="text-xs font-semibold text-gray-500">AI Coach</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">📊</div>
+      <p class="text-xs font-semibold text-gray-500">Swing Scores</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">⛳</div>
+      <p class="text-xs font-semibold text-gray-500">Shot Shape</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">🏆</div>
+      <p class="text-xs font-semibold text-gray-500">Pro Compare</p>
+    </div>
+  </div>
+
+</div>
+
+{% else %}
+<!-- ═══════════════════════════════════════════════════════════
+     MARKETING LANDING PAGE (logged-out)
+═══════════════════════════════════════════════════════════ -->
+<div class="max-w-4xl mx-auto px-4 py-10">
+
+  <!-- Hero -->
+  <div class="text-center mb-10">
+    <h1 class="text-3xl font-extrabold text-gray-900 mb-2">AI Golf Coaching, Instantly.</h1>
+    <p class="text-gray-400 text-sm mb-6">Upload a swing. Get scores, shot shape, pro comparisons, and drills — in seconds.</p>
+    <div class="flex flex-wrap gap-3 justify-center">
+      <a href="/accounts/signup/"
+         class="inline-block bg-indigo-600 text-white text-sm font-bold px-6 py-2.5 rounded-xl shadow hover:bg-indigo-700 transition">
+        Get Started Free
+      </a>
+      <a href="/accounts/login/"
+         class="inline-block bg-white text-gray-800 text-sm font-semibold px-6 py-2.5 rounded-xl shadow border border-gray-200 hover:bg-gray-50 transition">
+        Log In
+      </a>
+      <a href="{% url 'shots:demo_swing' %}"
+         class="inline-block bg-green-500 text-white text-sm font-bold px-6 py-2.5 rounded-xl shadow hover:bg-green-600 transition">
+        View Live Demo Analysis →
+      </a>
+    </div>
+  </div>
+
+  <!-- Same action cards as logged-in — all redirect to login -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
+
+    <a href="/accounts/login/"
+       class="group relative bg-indigo-600 hover:bg-indigo-700 transition rounded-2xl p-7 shadow-md flex flex-col justify-between min-h-[160px] overflow-hidden">
+      <div class="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white,transparent)]"></div>
+      <div>
+        <span class="text-3xl">⚡</span>
+        <h2 class="text-xl font-extrabold text-white mt-2">Quick Upload</h2>
+        <p class="text-indigo-200 text-sm mt-1 leading-relaxed">Upload a swing and get instant AI coaching — no course setup needed.</p>
+      </div>
+      <span class="mt-4 inline-block text-xs font-semibold text-white bg-white bg-opacity-20 px-3 py-1 rounded-full self-start group-hover:bg-opacity-30 transition">
+        Sign in to upload →
+      </span>
+    </a>
+
+    <a href="/accounts/login/"
+       class="group bg-white hover:shadow-lg transition rounded-2xl p-7 shadow-md border border-gray-100 flex flex-col justify-between min-h-[160px]">
+      <div>
+        <span class="text-3xl">🎬</span>
+        <h2 class="text-xl font-extrabold text-gray-900 mt-2">My Quick Swings</h2>
+        <p class="text-gray-400 text-sm mt-1 leading-relaxed">Browse your uploaded swings, scores, and AI feedback.</p>
+      </div>
+      <span class="mt-4 inline-block text-xs font-semibold text-indigo-600 group-hover:underline self-start">
+        Sign in to view →
+      </span>
+    </a>
+
+  </div>
+
+  <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Round Tracking</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+
+    <a href="/accounts/login/"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl flex-shrink-0">🏌️</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">Add Course</p>
+        <p class="text-xs text-gray-400">Set up a new course</p>
+      </div>
+    </a>
+
+    <a href="/accounts/login/"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-xl flex-shrink-0">🗺️</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">My Courses</p>
+        <p class="text-xs text-gray-400">View rounds &amp; holes</p>
+      </div>
+    </a>
+
+    <a href="/accounts/login/"
+       class="group bg-white hover:shadow-md transition rounded-2xl p-5 shadow-sm border border-gray-100 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-yellow-50 flex items-center justify-center text-xl flex-shrink-0">⭐</div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">Favorite Shots</p>
+        <p class="text-xs text-gray-400">Your starred moments</p>
+      </div>
+    </a>
+
+  </div>
+
+  <!-- What the AI gives you -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">🤖</div>
+      <p class="text-xs font-semibold text-gray-500">AI Coach</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">📊</div>
+      <p class="text-xs font-semibold text-gray-500">Swing Scores</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">⛳</div>
+      <p class="text-xs font-semibold text-gray-500">Shot Shape</p>
+    </div>
+    <div class="bg-gray-50 rounded-xl py-4 px-2">
+      <div class="text-2xl mb-1">🏆</div>
+      <p class="text-xs font-semibold text-gray-500">Pro Compare</p>
+    </div>
+  </div>
+
+</div>
+{% endif %}
+
+{% endblock %}

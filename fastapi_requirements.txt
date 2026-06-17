@@ -1,0 +1,7 @@
+# FastAPI Server Requirements
+# Install with: pip install -r fastapi_requirements.txt
+
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6  # Required for file uploads
+boto3==1.29.7  # AWS S3 integration

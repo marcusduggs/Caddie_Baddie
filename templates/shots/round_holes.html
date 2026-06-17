@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="max-w-7xl mx-auto px-6 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-gray-900">Round: {{ round.name|default:'Round' }}{% if round.played_at %} — {{ round.played_at|date:'M d, Y' }}{% endif %}</h2>
+      </div>
+      <div class="flex items-center gap-3">
+        {% if course_slug %}
+          <a href="{% url 'shots:rounds_list_for_course' course_slug %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to rounds</a>
+        {% else %}
+          <a href="{% url 'shots:rounds_list' %}" class="inline-block text-sm text-gray-600 hover:underline">← Back to rounds</a>
+        {% endif %}
+  <a href="{% url 'shots:analyze_upload' %}?round_id={{ round.pk }}&course={{ round.course_name|urlencode }}" class="inline-block bg-blue-600 text-white px-5 py-2 rounded-md shadow hover:bg-blue-700">Add New Hole</a>
+      </div>
+    </div>
+
+    {% if holes %}
+      <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {% for h in holes %}
+          <div class="bg-white rounded-lg shadow p-4">
+            <h3 class="text-lg font-medium">Hole {{ h.hole }}</h3>
+            <p class="text-sm text-gray-500">{{ h.count }} shots</p>
+            <div class="mt-3 flex items-center gap-3">
+              <a href="{% url 'shots:round_hole_shots' round.pk h.hole %}" class="inline-block bg-blue-600 text-white px-3 py-1 rounded text-sm">View shots</a>
+              <form method="post" action="{% url 'shots:delete_round_hole' round.pk h.hole %}" class="inline-block">
+                {% csrf_token %}
+                <button type="submit" class="inline-block bg-red-600 text-white px-3 py-1 rounded text-sm" onclick="return confirm('Delete all shots for hole {{ h.hole }}? This cannot be undone.');">Delete hole</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No holes with shots found for this round.</p>
+    {% endif %}
+  </div>
+{% endblock %}

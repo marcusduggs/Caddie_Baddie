@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="max-w-lg mx-auto px-4 py-8">
+
+  <div class="mb-6">
+    <a href="{% url 'shots:quick_swings' %}" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">← My Quick Swings</a>
+  </div>
+
+  <div class="text-center mb-8">
+    <h1 class="text-3xl font-extrabold text-gray-900">Quick Upload</h1>
+    <p class="mt-2 text-gray-500 text-sm">Drop your swing video and get instant AI analysis — no course or round setup needed.</p>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" id="quick-upload-form" novalidate>
+    {% csrf_token %}
+
+    <!-- Drag-and-drop zone -->
+    <div id="drop-zone"
+         class="relative flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 rounded-2xl bg-indigo-50 hover:bg-indigo-100 transition cursor-pointer p-8 mb-6"
+         onclick="document.getElementById('quick-video-input').click()">
+
+      <svg class="w-12 h-12 text-indigo-400 mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9A2.25 2.25 0 0013.5 5.25h-9A2.25 2.25 0 002.25 7.5v9A2.25 2.25 0 004.5 18.75z" />
+      </svg>
+
+      <p class="text-indigo-700 font-semibold text-base" id="drop-label">Tap to select video</p>
+      <p class="text-xs text-indigo-400 mt-1">or drag and drop here</p>
+      <p class="text-xs text-gray-400 mt-2">MP4, MOV, HEVC — up to 500 MB</p>
+
+      <!-- Hidden file input rendered by the form -->
+      {{ form.input_video }}
+    </div>
+
+    <!-- Selected file preview -->
+    <div id="file-preview" class="hidden mb-6 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-4">
+      <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-gray-900 truncate" id="file-name">—</p>
+        <p class="text-xs text-gray-400" id="file-size">—</p>
+      </div>
+      <button type="button" id="remove-file" class="text-gray-400 hover:text-red-500 transition text-lg leading-none">✕</button>
+    </div>
+
+    <!-- Form errors -->
+    {% if form.errors %}
+    <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+      {% for field in form %}{% for error in field.errors %}{{ error }}<br>{% endfor %}{% endfor %}
+      {% for error in form.non_field_errors %}{{ error }}<br>{% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Club selector -->
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Club <span class="text-gray-400 font-normal">(optional)</span></label>
+      <select name="club"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+        {% for value, label in form.club.field.choices %}
+          <option value="{{ value }}" {% if form.club.value == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Notes -->
+    <div class="mb-6">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Notes <span class="text-gray-400 font-normal">(optional)</span></label>
+      <textarea name="notes" rows="2" maxlength="500"
+                placeholder="e.g. Range session, working on hip turn…"
+                class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ form.notes.value|default:'' }}</textarea>
+    </div>
+
+    <!-- Upload progress bar (hidden until submit) -->
+    <div id="upload-progress" class="hidden mb-4">
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>Uploading…</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="w-full bg-gray-200 rounded-full h-2">
+        <div id="progress-bar" class="h-2 bg-indigo-500 rounded-full transition-all duration-300" style="width:0%"></div>
+      </div>
+    </div>
+
+    <button type="submit" id="submit-btn"
+            class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl text-lg hover:bg-indigo-700 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed">
+      Analyse My Swing
+    </button>
+  </form>
+
+  <!-- What happens next -->
+  <div class="mt-10 grid grid-cols-3 gap-4 text-center">
+    <div>
+      <div class="text-2xl mb-1">📹</div>
+      <p class="text-xs text-gray-500 font-medium">Upload video</p>
+    </div>
+    <div>
+      <div class="text-2xl mb-1">🤖</div>
+      <p class="text-xs text-gray-500 font-medium">AI analyses pose</p>
+    </div>
+    <div>
+      <div class="text-2xl mb-1">📊</div>
+      <p class="text-xs text-gray-500 font-medium">Get instant feedback</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const input     = document.getElementById('quick-video-input');
+  const dropZone  = document.getElementById('drop-zone');
+  const preview   = document.getElementById('file-preview');
+  const fileName  = document.getElementById('file-name');
+  const fileSize  = document.getElementById('file-size');
+  const removeBtn = document.getElementById('remove-file');
+  const dropLabel = document.getElementById('drop-label');
+  const form      = document.getElementById('quick-upload-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const progressWrap = document.getElementById('upload-progress');
+  const progressBar  = document.getElementById('progress-bar');
+  const progressPct  = document.getElementById('progress-pct');
+
+  function formatBytes(bytes) {
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function showPreview(file) {
+    fileName.textContent = file.name;
+    fileSize.textContent = formatBytes(file.size);
+    preview.classList.remove('hidden');
+    dropZone.classList.add('border-green-400', 'bg-green-50');
+    dropZone.classList.remove('border-indigo-300', 'bg-indigo-50');
+    dropLabel.textContent = 'Video selected ✓';
+  }
+
+  function clearFile() {
+    input.value = '';
+    preview.classList.add('hidden');
+    dropZone.classList.remove('border-green-400', 'bg-green-50');
+    dropZone.classList.add('border-indigo-300', 'bg-indigo-50');
+    dropLabel.textContent = 'Tap to select video';
+  }
+
+  input.addEventListener('change', function () {
+    if (this.files && this.files[0]) showPreview(this.files[0]);
+  });
+
+  removeBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    clearFile();
+  });
+
+  // Drag-and-drop
+  ['dragenter', 'dragover'].forEach(function (evt) {
+    dropZone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropZone.classList.add('border-indigo-500', 'bg-indigo-100');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (evt) {
+    dropZone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('border-indigo-500', 'bg-indigo-100');
+    });
+  });
+  dropZone.addEventListener('drop', function (e) {
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file && file.type.startsWith('video/')) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      showPreview(file);
+    }
+  });
+
+  // Direct S3 upload — bypasses Render to avoid SSL timeouts on large mobile videos
+  form.addEventListener('submit', function (e) {
+    if (!input.files || !input.files[0]) return;
+    e.preventDefault();
+
+    const file = input.files[0];
+    const csrfToken = form.querySelector('[name="csrfmiddlewaretoken"]').value;
+    const club = (form.querySelector('[name="club"]') || {}).value || '';
+    const notes = (form.querySelector('[name="notes"]') || {}).value || '';
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Uploading…';
+    progressWrap.classList.remove('hidden');
+
+    function showError(msg) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Analyse My Swing';
+      progressWrap.classList.add('hidden');
+      alert(msg);
+    }
+
+    // Step 1: get a presigned PUT URL from Django
+    fetch('{% url "shots:request_upload_urls" %}', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify({ files: [{ name: file.name, type: file.type || 'video/mp4' }] }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(urlData) {
+      if (!urlData.s3_available || !urlData.urls || !urlData.urls[0]) {
+        showError('Upload service unavailable. Please try again.');
+        return;
+      }
+      const slot = urlData.urls[0];
+
+      // Step 2: upload directly to S3 via XHR with real progress
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', slot.upload_url);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+
+      xhr.upload.addEventListener('progress', function(ev) {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          progressBar.style.width = pct + '%';
+          progressPct.textContent = pct + '%';
+          if (pct === 100) submitBtn.textContent = 'Saving…';
+        }
+      });
+
+      xhr.addEventListener('load', function() {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          showError('S3 upload failed (' + xhr.status + '). Check CORS policy.');
+          return;
+        }
+        // Step 3: tell Django to create the analysis record
+        fetch('{% url "shots:quick_upload_from_s3" %}', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ s3_key: slot.s3_key, original_name: file.name, club: club, notes: notes }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.redirect_url) {
+            window.location.href = data.redirect_url;
+          } else {
+            showError('Could not save analysis: ' + (data.error || 'unknown error'));
+          }
+        })
+        .catch(function() { showError('Network error saving analysis. Please try again.'); });
+      });
+
+      xhr.addEventListener('error', function() {
+        showError('Upload failed. Check your connection and try again.');
+      });
+
+      xhr.send(file);
+    })
+    .catch(function() { showError('Could not reach the server. Check your connection.'); });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <h2>Record a new shot</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <table>
+      {{ form.as_table }}
+      <tr>
+        <td>Upload video (optional)</td>
+        <td><input type="file" name="video"></td>
+      </tr>
+    </table>
+    <button type="submit">Save</button>
+  </form>
+  <p><a href="{% url 'shots:shot_list' %}">Back</a></p>
+{% endblock %}

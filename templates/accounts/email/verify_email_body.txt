@@ -1,0 +1,9 @@
+Hi {{ user.email }},
+
+Welcome to Caddie Baddie! Please verify your email address by clicking the link below:
+
+{{ verify_url }}
+
+This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.
+
+— The Caddie Baddie Team
