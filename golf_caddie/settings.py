@@ -134,6 +134,5 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
-# Mapbox token used to fetch static map images when a local overlay isn't present.
-# You can also override this at runtime with the MAPBOX_TOKEN environment variable.
-MAPBOX_TOKEN = 'pk.eyJ1IjoibGR1Z2dzIiwiYSI6ImNtZ3d2bzVybjBsNGkya3ByaGY5MXA1MGIifQ.OVODkq1EaazsvaXtyeFE4A'
+# Mapbox token — set the MAPBOX_TOKEN environment variable (never hardcode here).
+MAPBOX_TOKEN = os.environ.get('MAPBOX_TOKEN', '')
