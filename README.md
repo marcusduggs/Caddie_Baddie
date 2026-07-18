@@ -1,16 +1,62 @@
-# Golf Caddie (Django)
+# Caddie Baddie
 
-⛳ A Django app for logging golf shots and analyzing swing videos with GPS-based map overlays.
+An AI-powered golf coaching platform — upload a swing and get instant scoring, tour pro comparisons, and personalized coaching feedback. Built solo, full-stack, from data model through video processing pipeline to a deployed live product.
 
-## ✨ Features
+![Caddie Baddie landing page](screenshots/landing-page.png)
 
-- 📹 Upload golf swing videos directly from your iPhone
-- 🗺️ Automatic GPS extraction and Mapbox map overlay
-- 📱 Mobile-responsive interface optimized for iOS Safari
-- 🎯 Shot tracking with club and distance information
-- 🌐 Access from any device on your local network
+**Live site:** [caddiebaddie.golf](https://caddiebaddie.golf)
 
-## 🚀 Quick Start
+## What It Does
+
+Golfers already film their swing on a phone — Caddie Baddie turns that raw video into an actual coaching session. Upload a swing and the app processes the video, scores the swing across six dimensions, compares it to tour pro tendencies, and lets you ask follow-up questions to an AI coach that already has your swing data in context.
+
+- **Instant swing scoring** across Tempo, Balance, Rotation, Posture, Sequencing, and Consistency, with an overall score and a plain-language main fault, strength, and recommended drill
+- **Tour pro comparison** — matches swing characteristics against known professional tendencies
+- **Trend analysis across sessions** — tracks improvement over time and flags recurring patterns (e.g. a rushed downswing showing up repeatedly across recent swings)
+- **Interactive AI coach chat** — ask follow-up questions about your own swing mechanics, with the model already grounded in your actual analysis
+- **Automated video processing** — generates a pose-estimation wireframe overlay and a GPS shot-location map directly on the video, side by side with the original
+- **Course and round tracking**, separate from the "no setup needed" quick-upload path, for golfers who want to organize swings by course and round rather than just a flat upload history
+
+## AI Swing Coach
+
+![AI swing coach analysis](screenshots/ai-swing-coach.png)
+
+Every uploaded swing gets broken into a scored dashboard (Main Fault / Strength / Recommended Drill / Swing Thought, plus six individually-scored metrics), a tour pro comparison, and a trend-analysis card that looks across the user's recent swing history — not just the one just uploaded. The "Ask Your AI Coach" panel lets the user ask a specific question and get an answer grounded in their own data, rather than generic golf advice.
+
+## Video Processing
+
+![Original vs. processed swing video with overlays](screenshots/video-overlay-comparison.png)
+
+Every uploaded video is automatically processed into an overlay version, no manual editing required:
+
+- **Pose-estimation wireframe** (shoulder, spine, hip, and leg alignment lines), generated via MediaPipe
+- **GPS shot-location map**, extracted from the video's embedded location metadata (Apple QuickTime ISO6709 tags) and rendered via the Mapbox Static Images API — falls back to a static map if GPS metadata isn't available
+- Both overlays are toggleable independently
+
+**Supported formats:** MOV (iPhone default), MP4, and anything else `ffmpeg` supports.
+
+## Tech Stack
+
+- **Backend:** Python, Django, Django REST Framework
+- **Database:** PostgreSQL
+- **Video processing:** FFmpeg, OpenCV, MediaPipe (pose estimation)
+- **AI/ML:** OpenAI API (swing analysis, coaching feedback, and the interactive chat coach)
+- **Maps:** Mapbox Static Images API (GPS shot-location overlays)
+- **Cloud infrastructure:** AWS S3 (storage), AWS SES (email)
+- **Frontend:** Tailwind CSS
+- **Deployment:** Render
+- **Version control:** Git
+
+## Engineering Notes
+
+- **The video processing pipeline is the hard part of this app**, not the CRUD around it — reliably generating pose-estimation overlays across inconsistent phone-recorded video (different resolutions, orientations, frame rates) required real debugging and defensive handling, not just calling a library function once.
+- **The AI coach is grounded in real swing data, not a generic chatbot** — swing scores, detected faults, and session history all feed into the context the model uses to answer follow-up questions, so answers are specific to that user's actual swing rather than generic golf tips.
+- **Trend analysis works across sessions, not just the current upload** — the app tracks a user's swing history over time to detect recurring patterns (e.g. the same tempo issue appearing repeatedly), which requires real historical data modeling, not just per-video analysis.
+- **Deployed and operated as a real, live product** (not just a local demo) — includes authentication, access control, and a processing pipeline designed so uploads don't block the user while video processing happens.
+
+---
+
+## Local Development Setup
 
 ### 1. Create and activate a virtualenv (optional but recommended)
 
@@ -39,243 +85,98 @@ python manage.py runserver
 ```
 Then open http://127.0.0.1:8000/
 
-**Option B: Mobile access (iPhone/iPad)** ⭐ Recommended
+**Option B: Mobile access (iPhone/iPad)** ⭐ Recommended for testing uploads from a phone
 ```bash
 python start_mobile.py
 ```
-This will display your local network URL, for example:
-```
-📱 Access from your iPhone/iPad:
-   ➜  http://192.168.1.100:8000/
-```
+This displays your local network URL, e.g. `http://192.168.1.100:8000/`
 
 **Option C: Manual start with mobile access**
 ```bash
 python manage.py runserver 0.0.0.0:8000
 ```
 
-## 📱 Accessing from Your iPhone
+### Accessing from Your iPhone
 
-### Prerequisites
-- Your iPhone and Mac must be on the **same Wi-Fi network**
-- Note the IP address displayed when you run `python start_mobile.py`
+Your iPhone and Mac must be on the same Wi-Fi network.
 
-### Steps
-1. **Start the server** on your Mac:
-   ```bash
-   python start_mobile.py
-   ```
-
-2. **Note the Local Network URL** (e.g., `http://192.168.1.100:8000/`)
-
-3. **Open Safari** on your iPhone
-
-4. **Enter the URL** in the address bar
-
-5. **Upload videos** directly from your iPhone camera roll! 📸
-
-### Troubleshooting Mobile Access
+1. Start the server with `python start_mobile.py`
+2. Note the Local Network URL it displays
+3. Open Safari on your iPhone and enter that URL
+4. Upload videos directly from your iPhone camera roll
 
 **Can't connect from iPhone?**
-- ✓ Check that both devices are on the same Wi-Fi network
-- ✓ Make sure your Mac's firewall allows incoming connections
-- ✓ Try turning off VPN if you're using one
-- ✓ Verify the IP address hasn't changed (run the script again)
+- Check both devices are on the same Wi-Fi network
+- Make sure your Mac's firewall allows incoming connections
+- Try turning off VPN if you're using one
+- Verify the IP address hasn't changed (re-run the script)
 
-**To find your Mac's IP manually:**
-```bash
-# macOS
-ifconfig | grep "inet " | grep -v 127.0.0.1
-
-# Or check System Settings > Network
-```
-
-## 🔐 Secure Mobile Access (Optional)
+### Remote/Secure Access (Optional)
 
 For accessing from outside your local network or for HTTPS:
 
-### Option 1: ngrok (Easy)
+**ngrok:**
 ```bash
-# Install ngrok
 brew install ngrok
-
-# Run the Django server
 python manage.py runserver
-
-# In another terminal, create a tunnel
+# in another terminal:
 ngrok http 8000
 ```
-ngrok will provide a public HTTPS URL you can access from anywhere.
 
-### Option 2: Cloudflare Tunnel
+**Cloudflare Tunnel:**
 ```bash
-# Install cloudflared
 brew install cloudflare/cloudflare/cloudflared
-
-# Run the server
 python manage.py runserver
-
-# Create tunnel
 cloudflared tunnel --url http://localhost:8000
 ```
 
-## 🎥 Video Processing Features
+## Configuration
 
-The app automatically:
-1. **Extracts GPS coordinates** from video metadata (Apple QuickTime format)
-2. **Fetches a custom map** from Mapbox API showing the shot location
-3. **Overlays the map** on the bottom-right corner of the video
-4. **Falls back** to a static map if GPS data isn't available
-
-### Supported Video Formats
-- ✅ MOV (iPhone default)
-- ✅ MP4
-- ✅ Any format supported by ffmpeg
-
-### GPS Coordinate Support
-The app can extract GPS from:
-- Apple QuickTime ISO6709 tags (`com.apple.quicktime.location.ISO6709`)
-- Generic location tags
-- Direct GPS latitude/longitude metadata
-
-## 🛠️ Configuration
-
-### Mapbox API Token
-The Mapbox token is configured in `golf_caddie/settings.py`:
-```python
-MAPBOX_TOKEN = 'your-token-here'
-```
-
-You can also set it as an environment variable:
+**Mapbox API Token** — set in `golf_caddie/settings.py`, or as an environment variable:
 ```bash
 export MAPBOX_TOKEN='your-token-here'
 ```
 
-### Map Overlay Size
-Edit `utils/overlay.py` to adjust the overlay size:
+**Map overlay size** — adjustable in `utils/overlay.py`:
 ```python
-# Line ~295
 overlay_w = max(64, int(vwidth * 0.30))  # 30% of video width
 ```
 
-Change `0.30` to:
-- `0.20` for smaller overlay (20%)
-- `0.40` for larger overlay (40%)
-- `0.50` for very large overlay (50%)
+## Database
 
-## 📊 Database
+The app uses **PostgreSQL**. Local setup depends on your own Postgres installation/configuration — set your connection details in `golf_caddie/settings.py` (or via environment variables, depending on your local config), then run migrations as above.
 
-The app uses SQLite by default (`db.sqlite3`). To reset the database:
-```bash
-rm db.sqlite3
-python manage.py migrate
-```
+## Admin Access
 
-## 🔑 Admin Access
-
-Create a superuser to access the Django admin panel at `/admin/`:
 ```bash
 python manage.py createsuperuser
 ```
+Then visit `/admin/`.
 
-## 📝 Notes
+## macOS System Requirements (ffmpeg)
 
-- The project uses `ffmpeg` and `ffprobe` for video processing
-- GPS extraction requires videos with embedded location metadata
-- Processed videos are saved to `media/output/`
-- Original uploads are saved to `media/input/`
-- Video processing logs are saved to `media/logs/`
-
-## 🖥️ System Requirements (macOS)
-
-To analyze videos with GPS-based map overlays, the app uses `ffmpeg` and `ffprobe`.
-
-1) Install Homebrew (package manager)
+Video processing requires `ffmpeg` and `ffprobe`.
 
 ```zsh
+# Install Homebrew if needed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
 
-2) Add Homebrew to PATH
-
-- Apple Silicon:
-
-```zsh
-echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/opt/homebrew/bin/brew shellenv)"
-```
-
-- Intel:
-
-```zsh
-echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/usr/local/bin/brew shellenv)"
-```
-
-3) Install ffmpeg (includes ffprobe)
-
-```zsh
+# Install ffmpeg (includes ffprobe)
 brew install ffmpeg
+
+# Verify
+which ffprobe && which ffmpeg
 ```
 
-4) Verify installation
+## Troubleshooting
 
-```zsh
-which ffprobe
-which ffmpeg
-ffprobe -version
-ffmpeg -version
-```
+- **"Processing Failed" on the Analyze page:** confirm `ffmpeg`/`ffprobe` are installed and on your PATH (`which ffprobe`), then check the most recent log under `media/logs/overlay_*.log` for the exact error.
+- **Missing GPS overlay:** the app falls back to a static map if the video has no embedded GPS metadata — this is expected behavior, not a bug.
 
-If you prefer not to use Homebrew, download prebuilt ffmpeg/ffprobe binaries and place them in `~/bin`, then add `~/bin` to your PATH:
+## Repository
 
-```zsh
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
+[github.com/marcusduggs/Caddie_Baddie](https://github.com/marcusduggs/Caddie_Baddie)
 
-## 🧪 Troubleshooting
-
-- "Processing Failed" on Analyze page:
-   - Ensure `ffmpeg` and `ffprobe` are installed and visible in your shell (`which ffprobe`).
-   - Inspect the most recent log under `media/logs/overlay_*.log` for the exact ffmpeg command and error.
-   - If GPS metadata is missing, the app falls back to a static map (`test_map.png`).
-
-
-## 🤝 Development
-
-### File Structure
-```
-Golf_Caddie/
-├── golf_caddie/         # Django project settings
-├── shots/               # Main app
-├── utils/               # Video processing utilities
-│   └── overlay.py       # GPS extraction & map overlay
-├── media/
-│   ├── input/          # Uploaded videos
-│   ├── output/         # Processed videos with map overlay
-│   └── logs/           # Processing logs
-├── templates/           # HTML templates
-├── static/             # Static files (CSS, JS)
-├── start_mobile.py     # Mobile access startup script
-└── manage.py           # Django management script
-```
-
-### Key Technologies
-- Django 4.2+
-- ffmpeg/ffprobe (video processing)
-- Mapbox Static Images API (map generation)
-- Tailwind CSS (styling)
-- SQLite (database)
-
-## 📄 License
+## License
 
 This project is for personal use.
-
-## 🐛 Issues?
-
-Check the logs in `media/logs/` for debugging video processing issues.
-
----
-
-**Happy golfing! ⛳🏌️‍♂️**
